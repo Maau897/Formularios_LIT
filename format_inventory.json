@@ -1,0 +1,2623 @@
+{
+  "F-LIT-21-03": {
+    "sheets": {
+      "CONG-1": {
+        "laboratory": "BSL-1 504",
+        "equipment": "CONGELADOR",
+        "brand": "GS LABORATORY EQUIPMENT",
+        "model": "REF1617A14",
+        "serial": "Y19J-463719-YJ",
+        "inventory_or_code": "940194/CONG-1",
+        "normal_condition": "-20 °C",
+        "minimum": "-25 °C",
+        "maximum": "-15°C",
+        "ranges": [
+          {
+            "range_cell": "AU6",
+            "range_label": "-25 a -20",
+            "factor_cell": "AU7",
+            "factor_value": "0.22"
+          },
+          {
+            "range_cell": "AW6",
+            "range_label": "-20 a -15",
+            "factor_cell": "AW7",
+            "factor_value": "0.22"
+          },
+          {
+            "range_cell": "AY6",
+            "range_label": "-15 a -10",
+            "factor_cell": "AY7",
+            "factor_value": "0.2"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      },
+      "CONG-2": {
+        "laboratory": "BSL-1 504",
+        "equipment": "CONGELADOR",
+        "brand": "THERMO SCIENTIFIC",
+        "model": "TSX2330FY",
+        "serial": "114149540121110 2",
+        "inventory_or_code": "940497 / CONG-2",
+        "normal_condition": "-30 °C",
+        "minimum": "-35 °C",
+        "maximum": "-25°C",
+        "ranges": [
+          {
+            "range_cell": "AU6",
+            "range_label": "-35 a -30",
+            "factor_cell": "AU7",
+            "factor_value": "0.083"
+          },
+          {
+            "range_cell": "AW6",
+            "range_label": "-30 a -25",
+            "factor_cell": "AW7",
+            "factor_value": "-0.247"
+          },
+          {
+            "range_cell": "AY6",
+            "range_label": "-25 a -20",
+            "factor_cell": "AY7",
+            "factor_value": "-0.119"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      },
+      "CONG-3": {
+        "laboratory": "BSL-1 504",
+        "equipment": "CONGELADOR",
+        "brand": "THERMO SCIENTIFIC",
+        "model": "ULT2330A19",
+        "serial": "P19U-141166-PU",
+        "inventory_or_code": "940367 / CONG-3",
+        "normal_condition": "-30 °C",
+        "minimum": "-35 °C",
+        "maximum": "-25°C",
+        "ranges": [
+          {
+            "range_cell": "AU6",
+            "range_label": "-35 a -30",
+            "factor_cell": "AU7",
+            "factor_value": "-0.246"
+          },
+          {
+            "range_cell": "AW6",
+            "range_label": "-30 a -25",
+            "factor_cell": "AW7",
+            "factor_value": "-0.356"
+          },
+          {
+            "range_cell": "AY6",
+            "range_label": "-25 a -20",
+            "factor_cell": "AY7",
+            "factor_value": "-0.452"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      },
+      "CONG-5": {
+        "laboratory": "BSL-1 502",
+        "equipment": "CONGELADOR",
+        "brand": "THERMO SCIENTIFIC",
+        "model": "TSX2330FY",
+        "serial": "114196610122021 0",
+        "inventory_or_code": "940508 / CONG-5",
+        "normal_condition": "-30 °C",
+        "minimum": "-35 °C",
+        "maximum": "-25°C",
+        "ranges": [
+          {
+            "range_cell": "AU6",
+            "range_label": "-35 a -30",
+            "factor_cell": "AU7",
+            "factor_value": "-0.029"
+          },
+          {
+            "range_cell": "AW6",
+            "range_label": "-30 a -25",
+            "factor_cell": "AW7",
+            "factor_value": "-0.117"
+          },
+          {
+            "range_cell": "AY6",
+            "range_label": "-25 a -20",
+            "factor_cell": "AY7",
+            "factor_value": "0.041"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      },
+      "CONG-6": {
+        "laboratory": "Laboratorio de Secuenciación y Biología Molecular",
+        "equipment": "CONGELADOR",
+        "brand": "THERMO SCIENTIFIC",
+        "model": "TSX2330FY",
+        "serial": "114180690122021-4",
+        "inventory_or_code": "940504 / CONG-6",
+        "normal_condition": "-30 °C",
+        "minimum": "-35 °C",
+        "maximum": "-25°C",
+        "ranges": [
+          {
+            "range_cell": "AU6",
+            "range_label": "-28 a -23",
+            "factor_cell": "AU7",
+            "factor_value": "0.223"
+          },
+          {
+            "range_cell": "AW6",
+            "range_label": "-23 a -18",
+            "factor_cell": "AW7",
+            "factor_value": "0.216"
+          },
+          {
+            "range_cell": "AY6",
+            "range_label": "-18 a -10",
+            "factor_cell": "AY7",
+            "factor_value": "0.242"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      },
+      "CONG-7": {
+        "laboratory": "Laboratorio de Secuenciación y Biología Molecular",
+        "equipment": "CONGELADOR",
+        "brand": "GS LABORATORY EQUIPMENT",
+        "model": "FMS2118A15",
+        "serial": "V18U-185814-VU",
+        "inventory_or_code": "940306 / CONG-7",
+        "normal_condition": "-25 °C",
+        "minimum": "-30 °C",
+        "maximum": "-15°C",
+        "ranges": [
+          {
+            "range_cell": "AU6",
+            "range_label": "-23 a -20",
+            "factor_cell": "AU7",
+            "factor_value": "-0.24"
+          },
+          {
+            "range_cell": "AW6",
+            "range_label": "-20 a -18",
+            "factor_cell": "AW7",
+            "factor_value": "-0.05"
+          },
+          {
+            "range_cell": "AY6",
+            "range_label": "-18 a -10",
+            "factor_cell": "AY7",
+            "factor_value": "-0.01"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      }
+    }
+  },
+  "F-LIT-22-03": {
+    "sheets": {
+      "REFR-1": {
+        "laboratory": "BSL-2 506",
+        "equipment": "REFRIGERADOR",
+        "brand": "GS LABORATORY EQUIPMENT",
+        "model": "RLR1611A14",
+        "serial": "Y22J-463969-ZJ",
+        "inventory_or_code": "940193 / REFR-1",
+        "normal_condition": "5 °C",
+        "minimum": "2 °C",
+        "maximum": "8 °C",
+        "ranges": [
+          {
+            "range_cell": "AU6",
+            "range_label": "2 - 5",
+            "factor_cell": "AU7",
+            "factor_value": "-0.36"
+          },
+          {
+            "range_cell": "AW6",
+            "range_label": "5 - 8",
+            "factor_cell": "AW7",
+            "factor_value": "-0.53"
+          },
+          {
+            "range_cell": "AY6",
+            "range_label": "8 - 10",
+            "factor_cell": "AY7",
+            "factor_value": "-0.55"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      },
+      "REFR-2": {
+        "laboratory": "BSL-2 503",
+        "equipment": "REFRIGERADOR",
+        "brand": "THERMO SCIENTIFIC",
+        "model": "GTTSG49RPGA",
+        "serial": 300500691,
+        "inventory_or_code": "940509 / REFR-2",
+        "normal_condition": "5 °C",
+        "minimum": "2 °C",
+        "maximum": "8 °C",
+        "ranges": [
+          {
+            "range_cell": "AU6",
+            "range_label": "2 - 5",
+            "factor_cell": "AU7",
+            "factor_value": "0.05"
+          },
+          {
+            "range_cell": "AW6",
+            "range_label": "5 - 8",
+            "factor_cell": "AW7",
+            "factor_value": "0"
+          },
+          {
+            "range_cell": "AY6",
+            "range_label": "8 - 10",
+            "factor_cell": "AY7",
+            "factor_value": "0.05"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      },
+      "REFR-3": {
+        "laboratory": "Laboratorio de Secuenciación y Biología Molecular",
+        "equipment": "REFRIGERADOR",
+        "brand": "THERMO SCIENTIFIC",
+        "model": "TSG49RPGA",
+        "serial": 300533883,
+        "inventory_or_code": "940505 / REFR-3",
+        "normal_condition": "4 °C",
+        "minimum": "1 °C",
+        "maximum": "7 °C",
+        "ranges": [
+          {
+            "range_cell": "AU6",
+            "range_label": "1 - 4",
+            "factor_cell": "AU7",
+            "factor_value": "0.021"
+          },
+          {
+            "range_cell": "AW6",
+            "range_label": "4 - 7",
+            "factor_cell": "AW7",
+            "factor_value": "-0.003"
+          },
+          {
+            "range_cell": "AY6",
+            "range_label": "7 - 10",
+            "factor_cell": "AY7",
+            "factor_value": "0.02"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      },
+      "REFR-4": {
+        "laboratory": "BSL-1 504",
+        "equipment": "REFRIGERADOR",
+        "brand": "THERMO SCIENTIFIC",
+        "model": "TSG25RPGA",
+        "serial": 300511479,
+        "inventory_or_code": "940518 / REFR-4",
+        "normal_condition": "5 °C",
+        "minimum": "2 °C",
+        "maximum": "8 °C",
+        "ranges": [
+          {
+            "range_cell": "AU6",
+            "range_label": "2 - 5",
+            "factor_cell": "AU7",
+            "factor_value": "-0.04"
+          },
+          {
+            "range_cell": "AW6",
+            "range_label": "5 - 8",
+            "factor_cell": "AW7",
+            "factor_value": "0.05"
+          },
+          {
+            "range_cell": "AY6",
+            "range_label": "8 - 10",
+            "factor_cell": "AY7",
+            "factor_value": "0.04"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      }
+    }
+  },
+  "F-LIT-20-03": {
+    "sheets": {
+      "ULCO-1": {
+        "laboratory": "Pasillo 525",
+        "equipment": "ULTRACONGELADOR",
+        "brand": "REVCO",
+        "model": "ULT 2186-9-D40",
+        "serial": null,
+        "inventory_or_code": null,
+        "normal_condition": "-80 °C",
+        "minimum": "-90 °C",
+        "maximum": "-70 °C",
+        "ranges": [
+          {
+            "range_cell": "AX6",
+            "range_label": "N/A",
+            "factor_cell": "AX7",
+            "factor_value": "N/A"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      },
+      "ULCO-2": {
+        "laboratory": "Pasillo 525",
+        "equipment": "ULTRACONGELADOR",
+        "brand": "THERMO SCIENTIFIC",
+        "model": "ULT 2586-6-A42",
+        "serial": null,
+        "inventory_or_code": null,
+        "normal_condition": "-70 °C",
+        "minimum": "-80 °C",
+        "maximum": "-60 °C",
+        "ranges": [
+          {
+            "range_cell": "AX6",
+            "range_label": "N/A",
+            "factor_cell": "AX7",
+            "factor_value": "N/A"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      },
+      "ULCO-3": {
+        "laboratory": "Pasillo 525",
+        "equipment": "ULTRACONGELADOR",
+        "brand": "THERMO SCIENTIFIC",
+        "model": "TSX60086A",
+        "serial": "1115541001210 311",
+        "inventory_or_code": "940511 / ULCO-3",
+        "normal_condition": "-80 °C",
+        "minimum": "-90 °C",
+        "maximum": "-70 °C",
+        "ranges": [
+          {
+            "range_cell": "AU6",
+            "range_label": "-85 a -80",
+            "factor_cell": "AU7",
+            "factor_value": "0.742"
+          },
+          {
+            "range_cell": "AW6",
+            "range_label": "-80 a -70",
+            "factor_cell": "AW7",
+            "factor_value": "0.830"
+          },
+          {
+            "range_cell": "AY6",
+            "range_label": "-70 a -60",
+            "factor_cell": "AY7",
+            "factor_value": "0.654"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 16,
+          "top_performed": 19,
+          "top_verified": 20,
+          "top_date": 21,
+          "bottom_metric": 28,
+          "bottom_performed": 31,
+          "bottom_verified": 32,
+          "bottom_date": 33
+        },
+        "footer_labels": {
+          "observations_row": 34,
+          "review_row": 35
+        }
+      }
+    }
+  },
+  "F-LIT-23-03": {
+    "sheets": {
+      "ICO2-1": {
+        "laboratory": "BSL-2 506",
+        "equipment": "INCUBADORA CO2",
+        "brand": "THERMO SCIENTIFIC",
+        "model": "8000 DH",
+        "serial": null,
+        "inventory_or_code": null,
+        "normal_temperature": "37 °C",
+        "normal_co2": 0.05,
+        "minimum_temperature": "36 °C",
+        "maximum_temperature": "38 °C",
+        "minimum_co2": 0.04,
+        "maximum_co2": 0.06,
+        "ranges": [
+          {
+            "range_cell": "AX6",
+            "range_label": "36-38",
+            "factor_cell": "AX7",
+            "factor_value": "-0.208"
+          }
+        ],
+        "body_rows": {
+          "top_metric_1": 16,
+          "top_metric_2": 19,
+          "top_performed": 22,
+          "top_verified": 23,
+          "top_date": 24,
+          "bottom_metric_1": 31,
+          "bottom_metric_2": 34,
+          "bottom_performed": 37,
+          "bottom_verified": 38,
+          "bottom_date": 39
+        },
+        "footer_labels": {
+          "observations_row": 40,
+          "review_row": 41
+        }
+      },
+      "ICO2-2": {
+        "laboratory": "BSL-2 503",
+        "equipment": "INCUBADORA CO2",
+        "brand": "THERMO SCIENTIFIC",
+        "model": 3310,
+        "serial": null,
+        "inventory_or_code": null,
+        "normal_temperature": "37 °C",
+        "normal_co2": 0.05,
+        "minimum_temperature": "36 °C",
+        "maximum_temperature": "38 °C",
+        "minimum_co2": 0.04,
+        "maximum_co2": 0.06,
+        "ranges": [
+          {
+            "range_cell": "AX6",
+            "range_label": "36-38",
+            "factor_cell": "AX7",
+            "factor_value": "-0.15"
+          }
+        ],
+        "body_rows": {
+          "top_metric_1": 16,
+          "top_metric_2": 19,
+          "top_performed": 22,
+          "top_verified": 23,
+          "top_date": 24,
+          "bottom_metric_1": 31,
+          "bottom_metric_2": 34,
+          "bottom_performed": 37,
+          "bottom_verified": 38,
+          "bottom_date": 39
+        },
+        "footer_labels": {
+          "observations_row": 40,
+          "review_row": 41
+        }
+      },
+      "ICO2-3": {
+        "laboratory": "BSL-2 522",
+        "equipment": "INCUBADORA CO2",
+        "brand": "THERMO SCIENTIFIC",
+        "model": "HERAcell vios 160i LK",
+        "serial": null,
+        "inventory_or_code": null,
+        "normal_temperature": "37 °C",
+        "normal_co2": 0.05,
+        "minimum_temperature": "36 °C",
+        "maximum_temperature": "38 °C",
+        "minimum_co2": 0.04,
+        "maximum_co2": 0.06,
+        "ranges": [
+          {
+            "range_cell": "AX6",
+            "range_label": "36-38",
+            "factor_cell": "AX7",
+            "factor_value": "-0.041"
+          }
+        ],
+        "body_rows": {
+          "top_metric_1": 16,
+          "top_metric_2": 19,
+          "top_performed": 22,
+          "top_verified": 23,
+          "top_date": 24,
+          "bottom_metric_1": 31,
+          "bottom_metric_2": 34,
+          "bottom_performed": 37,
+          "bottom_verified": 38,
+          "bottom_date": 39
+        },
+        "footer_labels": {
+          "observations_row": 40,
+          "review_row": 41
+        }
+      }
+    }
+  },
+  "F-LIT-09-04": {
+    "sheets": {
+      "TEMPERATURA 504": {
+        "laboratory": "BSL-1 504",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "15-25 °C",
+        "minimum": "15 °C",
+        "maximum": "25 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.05"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.08"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "0.06"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "0.07"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.06"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD 504": {
+        "laboratory": "BSL-1 504",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "≤60%",
+        "minimum": "N/A",
+        "maximum": 0.6,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "1.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "3.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "2.7"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "3.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "2.2"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "1.6"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "0.3"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-1.4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA 503": {
+        "laboratory": "BSL-2 503",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "15-25 °C",
+        "minimum": "15 °C",
+        "maximum": "25 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.05"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.08"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "0.06"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "0.07"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.06"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD 503": {
+        "laboratory": "BSL-2 503",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "≤65%",
+        "minimum": "N/A",
+        "maximum": 0.65,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "1.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "3.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "2.7"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "3.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "2.2"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "1.6"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "0.3"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-1.4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA 506": {
+        "laboratory": "BSL-2 506",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "15-30 °C",
+        "minimum": "15 °C",
+        "maximum": "30 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.05"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.08"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "0.06"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "0.07"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.06"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD 506": {
+        "laboratory": "BSL-2 506",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "≤80%",
+        "minimum": "N/A",
+        "maximum": 0.8,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "1.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "3.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "2.7"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "3.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "2.2"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "1.6"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "0.3"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-1.4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA 507": {
+        "laboratory": "BSL-1 507",
+        "instrument": "N/A",
+        "code": "N/A",
+        "brand": "N/A",
+        "model": "N/A",
+        "serial": "N/A",
+        "normal_condition": "15-40 °C",
+        "minimum": "15 °C",
+        "maximum": "40 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "N/A",
+            "factor_cell": "AQ8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "N/A",
+            "factor_cell": "AS8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "N/A",
+            "factor_cell": "AU8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "N/A",
+            "factor_cell": "AW8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "N/A",
+            "factor_cell": "AY8",
+            "factor_value": "N/A"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD 507": {
+        "laboratory": "BSL-1 507",
+        "instrument": "N/A",
+        "code": "N/A",
+        "brand": null,
+        "model": null,
+        "serial": "N/A",
+        "normal_condition": "10-80%",
+        "minimum": 0.1,
+        "maximum": 0.8,
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "N/A",
+            "factor_cell": "AQ8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "N/A",
+            "factor_cell": "AS8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "N/A",
+            "factor_cell": "AU8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "N/A",
+            "factor_cell": "AW8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "N/A",
+            "factor_cell": "AY8",
+            "factor_value": "N/A"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA 508": {
+        "laboratory": "BSL-1 508",
+        "instrument": "N/A",
+        "code": "N/A",
+        "brand": "N/A",
+        "model": "N/A",
+        "serial": "N/A",
+        "normal_condition": "5-40 °C",
+        "minimum": "5 °C",
+        "maximum": "40 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "N/A",
+            "factor_cell": "AQ8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "N/A",
+            "factor_cell": "AS8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "N/A",
+            "factor_cell": "AU8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "N/A",
+            "factor_cell": "AW8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "N/A",
+            "factor_cell": "AY8",
+            "factor_value": "N/A"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD 508": {
+        "laboratory": "BSL-1 508",
+        "instrument": "N/A",
+        "code": "N/A",
+        "brand": null,
+        "model": null,
+        "serial": "N/A",
+        "normal_condition": "≤80%",
+        "minimum": "N/A",
+        "maximum": 0.8,
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "N/A",
+            "factor_cell": "AQ8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "N/A",
+            "factor_cell": "AS8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "N/A",
+            "factor_cell": "AU8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "N/A",
+            "factor_cell": "AW8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "N/A",
+            "factor_cell": "AY8",
+            "factor_value": "N/A"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA 502": {
+        "laboratory": "BSL-1 502",
+        "instrument": "N/A",
+        "code": "N/A",
+        "brand": "N/A",
+        "model": "N/A",
+        "serial": "N/A",
+        "normal_condition": "15-32 °C",
+        "minimum": "15 °C",
+        "maximum": "32 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "N/A",
+            "factor_cell": "AQ8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "N/A",
+            "factor_cell": "AS8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "N/A",
+            "factor_cell": "AU8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "N/A",
+            "factor_cell": "AW8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "N/A",
+            "factor_cell": "AY8",
+            "factor_value": "N/A"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD 502": {
+        "laboratory": "BSL-1 502",
+        "instrument": "N/A",
+        "code": "N/A",
+        "brand": null,
+        "model": null,
+        "serial": "N/A",
+        "normal_condition": "≤60%",
+        "minimum": "N/A",
+        "maximum": 0.6,
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "N/A",
+            "factor_cell": "AQ8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "N/A",
+            "factor_cell": "AS8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "N/A",
+            "factor_cell": "AU8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "N/A",
+            "factor_cell": "AW8",
+            "factor_value": "N/A"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "N/A",
+            "factor_cell": "AY8",
+            "factor_value": "N/A"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA 522": {
+        "laboratory": "BSL-2 522",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "18-32 °C",
+        "minimum": "18 °C",
+        "maximum": "32 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.05"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.08"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "0.06"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "0.07"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.06"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD 522": {
+        "laboratory": "BSL-2 522",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "≤80%",
+        "minimum": "N/A",
+        "maximum": 0.8,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "1.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "3.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "2.7"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "3.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "2.2"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "1.6"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "0.3"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-1.4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA 324": {
+        "laboratory": "BSL-1 324",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-1",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "15-25 °C",
+        "minimum": "15 °C",
+        "maximum": "25 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.45"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.28"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "0.16"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "0.07"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.06"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD 324": {
+        "laboratory": "BSL-1 324",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-1",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "≤80%",
+        "minimum": "N/A",
+        "maximum": 0.8,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "1.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "3.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "3.1"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "3.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "2.4"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "1.6"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "-0.6"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-1.4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA 514": {
+        "laboratory": "ALMACEN 514",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "15-25 °C",
+        "minimum": "15 °C",
+        "maximum": "25 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.05"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.08"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "0.06"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "0.07"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.06"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD 514": {
+        "laboratory": "ALMACEN 514",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "≤65%",
+        "minimum": "N/A",
+        "maximum": 0.65,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "1.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "3.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "2.7"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "3.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "2.2"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "1.6"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "0.3"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-1.4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA 513": {
+        "laboratory": "ALMACEN 513",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "15-25 °C",
+        "minimum": "15 °C",
+        "maximum": "25 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.05"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.08"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "0.06"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "0.07"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.06"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD 513": {
+        "laboratory": "ALMACEN 513",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "≤65%",
+        "minimum": "N/A",
+        "maximum": 0.65,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "1.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "3.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "2.7"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "3.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "2.2"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "1.6"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "0.3"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-1.4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA 510": {
+        "laboratory": "ARCHIVO 510",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "10-25 °C",
+        "minimum": "10 °C",
+        "maximum": "25 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.05"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.08"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "0.06"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "0.07"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.06"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD 510": {
+        "laboratory": "ARCHIVO 510",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-2",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "35-65%",
+        "minimum": 0.35,
+        "maximum": 0.65,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "1.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "3.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "2.7"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "3.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "2.2"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "1.6"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "0.3"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-1.4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA UBM": {
+        "laboratory": "Laboratorio de Secuenciación y Biología Molecular",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-3",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "15-30 °C",
+        "minimum": "15 °C",
+        "maximum": "30 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.15"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.08"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "-0.04"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "-0.13"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.26"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD UBM": {
+        "laboratory": "Laboratorio de Secuenciación y Biología Molecular",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-3",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "20-60%",
+        "minimum": 0.2,
+        "maximum": 0.6,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "1.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "4.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "3.1"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "3.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "3"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "2.3"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "-0.2"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-1.4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA UBM (CC)": {
+        "laboratory": "Laboratorio de Secuenciación y Biología Molecular (Cuarto de Cultivo)",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-3",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "10-35 °C",
+        "minimum": "10 °C",
+        "maximum": "35 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.15"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.08"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "-0.04"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "-0.13"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.26"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD UBM (CC)": {
+        "laboratory": "Laboratorio de Secuenciación y Biología Molecular (Cuarto de Cultivo)",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-3",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "10-75%",
+        "minimum": 0.1,
+        "maximum": 0.75,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "1.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "4.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "3.1"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "3.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "3"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "2.3"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "-0.2"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-1.4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA UCF": {
+        "laboratory": "Laboratorio de Citometría de Flujo",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-4",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "18-24 °C",
+        "minimum": "18 °C",
+        "maximum": "24 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.45"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.18"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "-0.04"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "-0.13"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.16"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD UCF": {
+        "laboratory": "Laboratorio de Citometría de Flujo",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-4",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "5-80%",
+        "minimum": 0.05,
+        "maximum": 0.8,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "0.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "1.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "0.1"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "0.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "-0.6"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "-2.4"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "-3.6"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "TEMPERATURA UCF (UCE)": {
+        "laboratory": "Laboratorio de Citometría de Flujo (UCE)",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-4",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "18-24 °C",
+        "minimum": "18 °C",
+        "maximum": "24 °C",
+        "ranges": [
+          {
+            "range_cell": "AQ7",
+            "range_label": "10-15",
+            "factor_cell": "AQ8",
+            "factor_value": "0.45"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "15-20",
+            "factor_cell": "AS8",
+            "factor_value": "0.18"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "20-25",
+            "factor_cell": "AU8",
+            "factor_value": "-0.04"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "25-30",
+            "factor_cell": "AW8",
+            "factor_value": "-0.13"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "30-35",
+            "factor_cell": "AY8",
+            "factor_value": "-0.16"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      },
+      "HUMEDAD UCF (UCE)": {
+        "laboratory": "Laboratorio de Citometría de Flujo (UCE)",
+        "instrument": "Thermohigrómetro",
+        "code": "THEI-4",
+        "brand": "Thermo Pro",
+        "model": "TP-55",
+        "serial": "S/N",
+        "normal_condition": "5-80%",
+        "minimum": 0.05,
+        "maximum": 0.8,
+        "ranges": [
+          {
+            "range_cell": "AK7",
+            "range_label": "10-20",
+            "factor_cell": "AK8",
+            "factor_value": "0.3"
+          },
+          {
+            "range_cell": "AM7",
+            "range_label": "20-30",
+            "factor_cell": "AM8",
+            "factor_value": "1.1"
+          },
+          {
+            "range_cell": "AO7",
+            "range_label": "30-40",
+            "factor_cell": "AO8",
+            "factor_value": "0.1"
+          },
+          {
+            "range_cell": "AQ7",
+            "range_label": "40-50",
+            "factor_cell": "AQ8",
+            "factor_value": "0.3"
+          },
+          {
+            "range_cell": "AS7",
+            "range_label": "50-60",
+            "factor_cell": "AS8",
+            "factor_value": "-0.6"
+          },
+          {
+            "range_cell": "AU7",
+            "range_label": "60-70",
+            "factor_cell": "AU8",
+            "factor_value": "-2.4"
+          },
+          {
+            "range_cell": "AW7",
+            "range_label": "70-80",
+            "factor_cell": "AW8",
+            "factor_value": "-3.6"
+          },
+          {
+            "range_cell": "AY7",
+            "range_label": "80-100",
+            "factor_cell": "AY8",
+            "factor_value": "-4"
+          }
+        ],
+        "body_rows": {
+          "top_metric": 17,
+          "top_performed": 20,
+          "top_verified": 21,
+          "top_date": 22,
+          "bottom_metric": 29,
+          "bottom_performed": 32,
+          "bottom_verified": 33,
+          "bottom_date": 34
+        },
+        "footer_labels": {
+          "observations_row": 35,
+          "review_row": 36
+        }
+      }
+    }
+  }
+}

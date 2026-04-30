@@ -1,0 +1,2196 @@
+from __future__ import annotations
+
+from calendar import monthrange
+from dataclasses import asdict, dataclass
+from datetime import date, datetime
+from io import BytesIO
+from pathlib import Path
+import json
+import os
+import re
+import shutil
+from typing import Any
+import unicodedata
+
+import streamlit as st
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:
+    def load_dotenv() -> bool:
+        return False
+from openpyxl import load_workbook
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
+from openpyxl.drawing.xdr import XDRPositiveSize2D
+from openpyxl.styles import Alignment, Font
+from openpyxl.utils import get_column_letter
+from openpyxl.utils.units import pixels_to_EMU
+from PIL import Image as PILImage
+from supabase_users import (
+    aprobar_usuario,
+    autenticar_usuario,
+    configure_supabase_users,
+    crear_admin_inicial,
+    get_users_backend_label,
+    listar_usuarios,
+    obtener_usuarios_pendientes,
+    registrar_usuario,
+    supabase_users_enabled,
+    actualizar_rol_usuario,
+)
+
+
+load_dotenv()
+
+BASE_DIR = Path(__file__).resolve().parent
+TEMPLATE_PATH = BASE_DIR / "F-LIT-21-03.xlsx"
+WORKING_TEMPLATE_PATH = BASE_DIR / "template_cong1.xlsx"
+DATA_DIR = BASE_DIR / "data"
+SIGNATURES_DIR = BASE_DIR / "firmas digitales"
+
+MONTHS = {
+    1: "ENERO",
+    2: "FEBRERO",
+    3: "MARZO",
+    4: "ABRIL",
+    5: "MAYO",
+    6: "JUNIO",
+    7: "JULIO",
+    8: "AGOSTO",
+    9: "SEPTIEMBRE",
+    10: "OCTUBRE",
+    11: "NOVIEMBRE",
+    12: "DICIEMBRE",
+}
+
+TIME_SLOTS = [
+    "7:00 - 10:00",
+    "11:00 - 14:00",
+    "15:00 - 18:00",
+]
+
+DAY_BLOCK_START_COLUMNS = {
+    day: 5 + ((day - 1) * 3)
+    for day in range(1, 17)
+}
+DAY_BLOCK_START_COLUMNS.update(
+    {day: 5 + ((day - 17) * 3) for day in range(17, 32)}
+)
+
+ROW_GROUPS = {
+    "top": {"temperature": 16, "performed_by": 19, "verified_by": 20, "date": 21},
+    "bottom": {"temperature": 28, "performed_by": 31, "verified_by": 32, "date": 33},
+}
+
+CORRECTION_CELL_MAP = {
+    "range_1": "AU7",
+    "range_2": "AW7",
+    "range_3": "AY7",
+}
+
+HEADER_CELL_MAP = {
+    "month": "P6",
+    "year": "X6",
+}
+
+FOOTER_CELL_MAP = {
+    "observations": "H34",
+    "reviewed_by": "H35",
+    "reviewed_on": "AI35",
+}
+
+FORM_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "congeladores": {
+        "label": "F-LIT-21-03 Congeladores",
+        "source_file": "F-LIT-21-03.xlsx",
+        "working_file": "template_cong1.xlsx",
+        "sheet_exclusions": {"CONG"},
+        "default_equipment": "CONG-1",
+        "supports_corrections": True,
+        "metrics": [
+            {"key": "measured_temperatures", "label": "Temperatura medida", "unit": "°C", "corrected": True},
+        ],
+        "layout": {
+            "top": {"metric_1": 16, "performed_by": 19, "verified_by": 20, "date": 21},
+            "bottom": {"metric_1": 28, "performed_by": 31, "verified_by": 32, "date": 33},
+            "footer": {"observations": "H34", "reviewed_by": "H35", "reviewed_on": "AI35"},
+            "status_rows_to_merge": [20, 21, 32, 33],
+        },
+        "extractor": "cold_equipment",
+    },
+    "ultracongeladores": {
+        "label": "F-LIT-20-03 Ultracongeladores",
+        "source_file": "F-LIT-20-03 ulcos.xlsx",
+        "working_file": "template_ulcos.xlsx",
+        "sheet_exclusions": {"ULCO"},
+        "default_equipment": "ULCO-1",
+        "supports_corrections": True,
+        "metrics": [
+            {"key": "measured_temperatures", "label": "Temperatura medida", "unit": "°C", "corrected": True},
+        ],
+        "layout": {
+            "top": {"metric_1": 16, "performed_by": 19, "verified_by": 20, "date": 21},
+            "bottom": {"metric_1": 28, "performed_by": 31, "verified_by": 32, "date": 33},
+            "footer": {"observations": "H34", "reviewed_by": "H35", "reviewed_on": "AI35"},
+            "status_rows_to_merge": [20, 21, 32, 33],
+        },
+        "extractor": "cold_equipment",
+    },
+    "refrigeradores": {
+        "label": "F-LIT-22-03 Refrigeradores",
+        "source_file": "F-LIT-22-03 regrigeradores.xlsx",
+        "working_file": "template_refrigeradores.xlsx",
+        "sheet_exclusions": {"REFR"},
+        "default_equipment": "REFR-1",
+        "supports_corrections": True,
+        "metrics": [
+            {"key": "measured_temperatures", "label": "Temperatura medida", "unit": "°C", "corrected": True},
+        ],
+        "layout": {
+            "top": {"metric_1": 16, "performed_by": 19, "verified_by": 20, "date": 21},
+            "bottom": {"metric_1": 28, "performed_by": 31, "verified_by": 32, "date": 33},
+            "footer": {"observations": "H34", "reviewed_by": "H35", "reviewed_on": "AI35"},
+            "status_rows_to_merge": [20, 21, 32, 33],
+        },
+        "extractor": "cold_equipment",
+    },
+    "incubadoras": {
+        "label": "F-LIT-23-03 Incubadoras",
+        "source_file": "F-LIT-23-03 incubadoras.xlsx",
+        "working_file": "template_incubadoras.xlsx",
+        "sheet_exclusions": {"ICO2"},
+        "default_equipment": "ICO2-1",
+        "supports_corrections": True,
+        "metrics": [
+            {"key": "measured_temperatures", "label": "Temperatura medida", "unit": "°C", "corrected": False},
+            {"key": "secondary_measurements", "label": "%CO2", "unit": "", "corrected": False},
+        ],
+        "layout": {
+            "top": {"metric_1": 16, "metric_2": 19, "performed_by": 22, "verified_by": 23, "date": 24},
+            "bottom": {"metric_1": 31, "metric_2": 34, "performed_by": 37, "verified_by": 38, "date": 39},
+            "footer": {"observations": "K40", "reviewed_by": "K41", "reviewed_on": "AL41"},
+            "status_rows_to_merge": [23, 24, 38, 39],
+        },
+        "extractor": "incubators",
+    },
+    "condiciones_ambientales": {
+        "label": "F-LIT-09-04 Condiciones Ambientales",
+        "source_file": "F-LIT-09-04 condiciones ambientales.xlsx",
+        "working_file": "template_condiciones_ambientales.xlsx",
+        "sheet_exclusions": {"TEMPERATURA", "HUMEDAD"},
+        "default_equipment": "TEMPERATURA 504",
+        "supports_corrections": True,
+        "metrics": [
+            {"key": "measured_temperatures", "label": "Lectura medida", "unit": "", "corrected": True},
+        ],
+        "layout": {
+            "top": {"metric_1": 17, "performed_by": 20, "verified_by": 21, "date": 22},
+            "bottom": {"metric_1": 29, "performed_by": 32, "verified_by": 33, "date": 34},
+            "footer": {"observations": "E35", "reviewed_by": "E36", "reviewed_on": "AE36"},
+            "status_rows_to_merge": [21, 22, 33, 34],
+        },
+        "extractor": "ambient",
+    },
+}
+
+DEFAULT_FORM_KEY = "congeladores"
+DEFAULT_EQUIPMENT_CODE = FORM_DEFINITIONS[DEFAULT_FORM_KEY]["default_equipment"]
+ROLES_USUARIO = ["captura", "responsable", "auditor", "calidad", "admin"]
+SENSITIVE_EDITOR_ROLES = {"calidad", "admin"}
+
+
+@dataclass
+class DailyCapture:
+    active: bool
+    measured_temperatures: list[str]
+    corrected_temperatures: list[str]
+    secondary_measurements: list[str]
+    performed_by_slots: list[str]
+    verified_by: str
+    recorded_on: str
+    notes: str = ""
+
+
+def default_daily_capture(day: int) -> DailyCapture:
+    today = date.today().isoformat()
+    is_weekday = date.today().replace(day=min(day, 28)).weekday() < 5
+    return DailyCapture(
+        active=is_weekday,
+        measured_temperatures=["", "", ""],
+        corrected_temperatures=["", "", ""],
+        secondary_measurements=["", "", ""],
+        performed_by_slots=["", "", ""],
+        verified_by="",
+        recorded_on=today,
+        notes="",
+    )
+
+
+def get_config_value(secret_key: str, env_key: str, default: Any = "") -> Any:
+    try:
+        return st.secrets.get(secret_key, os.getenv(env_key, default))
+    except Exception:
+        return os.getenv(env_key, default)
+
+
+def as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "si", "on"}
+    return bool(value)
+
+
+def configure_users_backend() -> None:
+    configure_supabase_users(
+        url=str(get_config_value("supabase_url", "SUPABASE_URL", "")),
+        key=str(get_config_value("supabase_key", "SUPABASE_KEY", "")),
+        enabled=as_bool(get_config_value("use_supabase_users", "USE_SUPABASE_USERS", False)),
+        table_name=str(get_config_value("supabase_users_table", "SUPABASE_USERS_TABLE", "usuarios_app")),
+    )
+
+    admin_email = str(get_config_value("admin_email", "ADMIN_EMAIL", "")).strip()
+    admin_password = str(get_config_value("admin_password", "ADMIN_PASSWORD", "")).strip()
+    if supabase_users_enabled() and admin_email and admin_password:
+        try:
+            crear_admin_inicial(admin_email, admin_password)
+        except Exception:
+            pass
+
+
+def normalize_user_role(rol: Any, es_admin: bool) -> str:
+    if es_admin:
+        return "admin"
+    normalized = str(rol or "captura").strip().lower()
+    return normalized if normalized in ROLES_USUARIO else "captura"
+
+
+def initialize_auth_state() -> None:
+    defaults = {
+        "autenticado": False,
+        "usuario_email": "",
+        "es_admin": False,
+        "rol_usuario": "captura",
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
+def current_user_role() -> str:
+    return str(st.session_state.get("rol_usuario", "captura"))
+
+
+def can_edit_sensitive_configuration() -> bool:
+    return current_user_role() in SENSITIVE_EDITOR_ROLES
+
+
+def can_edit_schedule() -> bool:
+    return current_user_role() in {"responsable", "calidad", "admin"}
+
+
+def can_edit_daily_records() -> bool:
+    return current_user_role() in {"captura", "responsable", "calidad", "admin"}
+
+
+def can_close_period() -> bool:
+    return current_user_role() in {"responsable", "calidad", "admin"}
+
+
+def can_export_period() -> bool:
+    return current_user_role() in {"responsable", "calidad", "admin"}
+
+
+def render_auth_screen() -> None:
+    st.title("Acceso al sistema")
+    st.caption(f"Persistencia de usuarios: {get_users_backend_label()}")
+
+    if not supabase_users_enabled():
+        st.error("La autenticacion con Supabase no esta configurada en esta app.")
+        st.stop()
+
+    login_tab, register_tab = st.tabs(["Iniciar sesion", "Crear cuenta"])
+
+    with login_tab:
+        email_login = st.text_input("Correo", key="login_email")
+        password_login = st.text_input("Contrasena", type="password", key="login_password")
+        if st.button("Ingresar", use_container_width=True):
+            try:
+                result = autenticar_usuario(email_login, password_login, normalize_user_role)
+                if result["ok"]:
+                    st.session_state["autenticado"] = True
+                    st.session_state["usuario_email"] = result["email"]
+                    st.session_state["es_admin"] = result["es_admin"]
+                    st.session_state["rol_usuario"] = result.get("rol", "captura")
+                    st.rerun()
+                else:
+                    st.error(result["mensaje"])
+            except Exception as exc:
+                st.error(f"No se pudo iniciar sesion: {exc}")
+
+    with register_tab:
+        email_register = st.text_input("Correo institucional o personal", key="register_email")
+        password_register = st.text_input("Contrasena", type="password", key="register_password")
+        password_register_2 = st.text_input("Confirmar contrasena", type="password", key="register_password_2")
+        requested_role = st.selectbox(
+            "Perfil solicitado",
+            ["captura", "responsable", "auditor", "calidad"],
+            format_func=lambda value: value.capitalize(),
+            key="register_role",
+        )
+        if st.button("Crear cuenta", use_container_width=True):
+            try:
+                if not email_register or not password_register:
+                    st.warning("Completa correo y contrasena.")
+                elif password_register != password_register_2:
+                    st.warning("Las contrasenas no coinciden.")
+                else:
+                    registrar_usuario(email_register, password_register, requested_role)
+                    st.success("Cuenta creada. Queda pendiente de aprobacion.")
+            except Exception as exc:
+                st.error(f"No se pudo crear la cuenta: {exc}")
+
+
+def render_user_admin_sidebar() -> None:
+    if not st.session_state.get("es_admin", False) or not supabase_users_enabled():
+        return
+
+    st.sidebar.divider()
+    st.sidebar.subheader("Aprobacion de usuarios")
+    try:
+        pending_users = obtener_usuarios_pendientes()
+        if pending_users:
+            for user_id, email, registered_at in pending_users:
+                st.sidebar.write(f"{email} - {registered_at}")
+                approval_role = st.sidebar.selectbox(
+                    f"Rol para {email}",
+                    ROLES_USUARIO,
+                    index=ROLES_USUARIO.index("captura"),
+                    format_func=lambda value: value.capitalize(),
+                    key=f"approval_role_{user_id}",
+                )
+                if st.sidebar.button("Aprobar", key=f"approve_{user_id}", use_container_width=True):
+                    aprobar_usuario(user_id, approval_role)
+                    st.sidebar.success(f"Usuario {email} aprobado.")
+                    st.rerun()
+        else:
+            st.sidebar.caption("No hay usuarios pendientes.")
+
+        st.sidebar.subheader("Roles activos")
+        approved_users = [row for row in listar_usuarios() if row[2] == 1]
+        if approved_users:
+            for user_id, email, _, _, role, _ in approved_users:
+                new_role = st.sidebar.selectbox(
+                    email,
+                    ROLES_USUARIO,
+                    index=ROLES_USUARIO.index(role if role in ROLES_USUARIO else "captura"),
+                    format_func=lambda value: value.capitalize(),
+                    key=f"role_user_{user_id}",
+                )
+                if st.sidebar.button("Actualizar rol", key=f"update_role_{user_id}", use_container_width=True):
+                    actualizar_rol_usuario(user_id, new_role)
+                    st.sidebar.success(f"Rol de {email} actualizado a {new_role}.")
+                    st.rerun()
+        else:
+            st.sidebar.caption("No hay usuarios aprobados para administrar.")
+    except Exception as exc:
+        st.sidebar.error(f"No se pudo cargar la administracion de usuarios: {exc}")
+
+
+def coerce_factor_value(raw_value: Any) -> tuple[str, float]:
+    try:
+        numeric_value = float(str(raw_value).replace(",", ".").strip())
+    except (TypeError, ValueError, AttributeError):
+        numeric_value = 0.0
+
+    operation = "+" if numeric_value >= 0 else "-"
+    return operation, abs(numeric_value)
+
+
+def parse_range_bounds(label_text: str) -> tuple[float, float] | None:
+    numbers = re.findall(r"-?\d+(?:\.\d+)?", label_text)
+    if len(numbers) < 2:
+        return None
+    return float(numbers[0]), float(numbers[1])
+
+
+def find_value_after_label(
+    worksheet: Any,
+    label: str,
+    rows: list[int],
+    max_columns: int | None = None,
+) -> Any:
+    max_col = max_columns or worksheet.max_column
+    normalized_label = label.strip().lower()
+
+    for row in rows:
+        for column in range(1, max_col + 1):
+            cell_value = worksheet.cell(row, column).value
+            if cell_value is None:
+                continue
+            if str(cell_value).strip().lower() != normalized_label:
+                continue
+
+            for next_col in range(column + 1, max_col + 1):
+                next_value = worksheet.cell(row, next_col).value
+                if next_value not in (None, ""):
+                    return next_value
+
+    return None
+
+
+def find_cell_after_label(
+    worksheet: Any,
+    label: str,
+    rows: list[int],
+    max_columns: int | None = None,
+) -> str | None:
+    max_col = max_columns or worksheet.max_column
+    normalized_label = label.strip().lower()
+
+    for row in rows:
+        for column in range(1, max_col + 1):
+            cell_value = worksheet.cell(row, column).value
+            if cell_value is None:
+                continue
+            if str(cell_value).strip().lower() != normalized_label:
+                continue
+
+            for next_col in range(column + 1, max_col + 1):
+                next_value = worksheet.cell(row, next_col).value
+                if next_value not in (None, ""):
+                    return worksheet.cell(row, next_col).coordinate
+
+    return None
+
+
+def get_form_definition(form_key: str) -> dict[str, Any]:
+    return FORM_DEFINITIONS[form_key]
+
+
+def get_template_paths(form_key: str) -> tuple[Path, Path]:
+    definition = get_form_definition(form_key)
+    return BASE_DIR / definition["source_file"], BASE_DIR / definition["working_file"]
+
+
+@st.cache_data(show_spinner=False)
+def get_template_bytes(form_key: str) -> bytes:
+    source_path, working_path = get_template_paths(form_key)
+    try:
+        return source_path.read_bytes()
+    except PermissionError:
+        if not working_path.exists() and source_path.exists():
+            try:
+                shutil.copy2(source_path, working_path)
+            except PermissionError:
+                workbook = load_workbook(source_path)
+                workbook.save(working_path)
+        return working_path.read_bytes()
+
+
+def extract_inline_corrections(
+    worksheet: Any,
+    range_row: int,
+    factor_row: int,
+) -> tuple[dict[str, dict[str, Any]], dict[str, str], dict[str, float], dict[str, str]]:
+    correction_bands: dict[str, dict[str, Any]] = {}
+    correction_cells: dict[str, str] = {}
+    correction_operations: dict[str, str] = {}
+    correction_factors: dict[str, float] = {}
+    range_index = 1
+    range_header_col = None
+
+    for column in range(1, worksheet.max_column + 1):
+        header_value = worksheet.cell(range_row, column).value
+        if header_value and "Rango" in str(header_value):
+            range_header_col = column
+            break
+
+    if range_header_col is None:
+        return correction_bands, correction_cells, correction_operations, correction_factors
+
+    for column in range(range_header_col + 1, worksheet.max_column + 1):
+        range_value = worksheet.cell(range_row, column).value
+        factor_value = worksheet.cell(factor_row, column).value
+        if range_value in (None, "") or factor_value in (None, ""):
+            continue
+
+        label_text = str(range_value).strip()
+        if label_text.upper() == "N/A":
+            continue
+        if "-" not in label_text:
+            continue
+
+        bounds = parse_range_bounds(label_text)
+        if bounds is None:
+            continue
+        min_value, max_value = bounds
+
+        key = f"range_{range_index}"
+        range_index += 1
+        operation, numeric_value = coerce_factor_value(factor_value)
+        correction_bands[key] = {"label": label_text, "min": min_value, "max": max_value}
+        correction_cells[key] = worksheet.cell(factor_row, column).coordinate
+        correction_operations[key] = operation
+        correction_factors[key] = numeric_value
+
+    return correction_bands, correction_cells, correction_operations, correction_factors
+
+
+def extract_cold_equipment_config(sheet_name: str, worksheet: Any) -> dict[str, Any]:
+    correction_bands, correction_cells, correction_operations, correction_factors = extract_inline_corrections(
+        worksheet,
+        range_row=6,
+        factor_row=7,
+    )
+    return {
+        "sheet_name": sheet_name,
+        "equipment_code": sheet_name,
+        "laboratory": find_value_after_label(worksheet, "Laboratorio", [6]) or "",
+        "equipment_name": find_value_after_label(worksheet, "Equipo", [7]) or "",
+        "brand": find_value_after_label(worksheet, "Marca", [7]) or "",
+        "model": find_value_after_label(worksheet, "Modelo", [7]) or "",
+        "serial_number": find_value_after_label(worksheet, "No. Serie", [6]) or "",
+        "inventory_code": find_value_after_label(worksheet, "Inventario / Código", [7])
+        or find_value_after_label(worksheet, "Inventario/Código", [7])
+        or "",
+        "primary_label": find_value_after_label(worksheet, "Temperatura (ºC)", [8]) or "",
+        "minimum_label": find_value_after_label(worksheet, "Mínima", [8]) or "",
+        "maximum_label": find_value_after_label(worksheet, "Máxima", [8]) or "",
+        "metadata_cells": {
+            "equipment_name": find_cell_after_label(worksheet, "Equipo", [7]),
+            "brand": find_cell_after_label(worksheet, "Marca", [7]),
+            "model": find_cell_after_label(worksheet, "Modelo", [7]),
+            "serial_number": find_cell_after_label(worksheet, "No. Serie", [6]),
+            "inventory_code": find_cell_after_label(worksheet, "Inventario / Código", [7])
+            or find_cell_after_label(worksheet, "Inventario/Código", [7]),
+            "temperature_label": find_cell_after_label(worksheet, "Temperatura (ºC)", [8]),
+            "minimum_label": find_cell_after_label(worksheet, "Mínima", [8]),
+            "maximum_label": find_cell_after_label(worksheet, "Máxima", [8]),
+        },
+        "correction_bands": correction_bands,
+        "correction_cells": correction_cells,
+        "correction_factors": correction_factors,
+        "correction_operations": correction_operations,
+    }
+
+
+def extract_incubator_config(sheet_name: str, worksheet: Any) -> dict[str, Any]:
+    correction_bands, correction_cells, correction_operations, correction_factors = extract_inline_corrections(
+        worksheet,
+        range_row=6,
+        factor_row=7,
+    )
+    return {
+        "sheet_name": sheet_name,
+        "equipment_code": sheet_name,
+        "laboratory": find_value_after_label(worksheet, "Laboratorio", [6]) or "",
+        "equipment_name": find_value_after_label(worksheet, "Equipo", [7]) or "",
+        "brand": find_value_after_label(worksheet, "Marca", [7]) or "",
+        "model": find_value_after_label(worksheet, "Modelo", [7]) or "",
+        "serial_number": find_value_after_label(worksheet, "No. Serie", [6]) or "",
+        "inventory_code": find_value_after_label(worksheet, "Inventario / Código", [7])
+        or find_value_after_label(worksheet, "Inventario/Código", [7])
+        or "",
+        "primary_label": find_value_after_label(worksheet, "Temperatura (ºC)", [8]) or "",
+        "minimum_label": find_value_after_label(worksheet, "Mínima", [8]) or "",
+        "maximum_label": find_value_after_label(worksheet, "Máxima", [8]) or "",
+        "secondary_label": find_value_after_label(worksheet, "%CO2", [9]) or "",
+        "secondary_minimum_label": find_value_after_label(worksheet, "Mínima", [9]) or "",
+        "secondary_maximum_label": find_value_after_label(worksheet, "Máxima", [9]) or "",
+        "metadata_cells": {
+            "equipment_name": find_cell_after_label(worksheet, "Equipo", [7]),
+            "brand": find_cell_after_label(worksheet, "Marca", [7]),
+            "model": find_cell_after_label(worksheet, "Modelo", [7]),
+            "serial_number": find_cell_after_label(worksheet, "No. Serie", [6]),
+            "inventory_code": find_cell_after_label(worksheet, "Inventario / Código", [7])
+            or find_cell_after_label(worksheet, "Inventario/Código", [7]),
+            "temperature_label": find_cell_after_label(worksheet, "Temperatura (ºC)", [8]),
+            "minimum_label": find_cell_after_label(worksheet, "Mínima", [8]),
+            "maximum_label": find_cell_after_label(worksheet, "Máxima", [8]),
+            "secondary_label": find_cell_after_label(worksheet, "%CO2", [9]),
+            "secondary_minimum_label": find_cell_after_label(worksheet, "Mínima", [9]),
+            "secondary_maximum_label": find_cell_after_label(worksheet, "Máxima", [9]),
+        },
+        "correction_bands": correction_bands,
+        "correction_cells": correction_cells,
+        "correction_factors": correction_factors,
+        "correction_operations": correction_operations,
+    }
+
+
+def extract_ambient_config(sheet_name: str, worksheet: Any) -> dict[str, Any]:
+    is_humidity_sheet = "HUMEDAD" in sheet_name.upper()
+    if is_humidity_sheet:
+        uses_shifted_header = worksheet["O8"].value in (None, "") and worksheet["S8"].value in (None, "")
+        if uses_shifted_header:
+            brand_value = worksheet["Q8"].value or ""
+            model_value = worksheet["W8"].value or ""
+            serial_value = worksheet["AC8"].value or ""
+            brand_cell = "Q8"
+            model_cell = "W8"
+            serial_cell = "AC8"
+        else:
+            brand_value = worksheet["O8"].value or ""
+            model_value = worksheet["S8"].value or ""
+            serial_value = worksheet["W8"].value or ""
+            brand_cell = "O8"
+            model_cell = "S8"
+            serial_cell = "W8"
+    else:
+        brand_value = worksheet["Q8"].value or ""
+        model_value = worksheet["W8"].value or ""
+        serial_value = worksheet["AC8"].value or ""
+        brand_cell = "Q8"
+        model_cell = "W8"
+        serial_cell = "AC8"
+    primary_label_value = (
+        find_value_after_label(worksheet, "TEMPERATURA (°C)", [9])
+        or find_value_after_label(worksheet, "TEMPERATURA (Â°C)", [9])
+        or find_value_after_label(worksheet, "% HUMEDAD", [9])
+        or find_value_after_label(worksheet, "% Humedad Relativa", [9])
+        or ""
+    )
+    primary_label_cell = (
+        find_cell_after_label(worksheet, "TEMPERATURA (°C)", [9])
+        or find_cell_after_label(worksheet, "TEMPERATURA (Â°C)", [9])
+        or find_cell_after_label(worksheet, "% HUMEDAD", [9])
+        or find_cell_after_label(worksheet, "% Humedad Relativa", [9])
+    )
+    correction_bands: dict[str, dict[str, Any]] = {}
+    correction_cells: dict[str, str] = {}
+    operations: dict[str, str] = {}
+    factors: dict[str, float] = {}
+    range_index = 1
+    for column in range(1, worksheet.max_column + 1):
+        range_label = worksheet.cell(7, column).value
+        factor_value = worksheet.cell(8, column).value
+        if not range_label or factor_value in (None, ""):
+            continue
+        label_text = str(range_label).strip()
+        if "-" not in label_text:
+            continue
+        bounds = parse_range_bounds(label_text)
+        if bounds is None:
+            continue
+        min_value, max_value = bounds
+
+        key = f"range_{range_index}"
+        range_index += 1
+        op, num = coerce_factor_value(factor_value)
+        operations[key] = op
+        factors[key] = num
+        correction_bands[key] = {"label": label_text, "min": min_value, "max": max_value}
+        correction_cells[key] = worksheet.cell(8, column).coordinate
+    return {
+        "sheet_name": sheet_name,
+        "equipment_code": sheet_name,
+        "laboratory": find_value_after_label(worksheet, "Laboratorio", [6]) or "",
+        "equipment_name": worksheet["E8"].value or sheet_name,
+        "brand": brand_value,
+        "model": model_value,
+        "serial_number": serial_value,
+        "inventory_code": worksheet["K8"].value or "",
+        "primary_label": primary_label_value,
+        "minimum_label": find_value_after_label(worksheet, "Mínima", [9]) or "",
+        "maximum_label": find_value_after_label(worksheet, "Máxima", [9]) or "",
+        "metadata_cells": {
+            "equipment_name": "E8",
+            "brand": brand_cell,
+            "model": model_cell,
+            "serial_number": serial_cell,
+            "inventory_code": "K8",
+            "temperature_label": primary_label_cell,
+            "minimum_label": find_cell_after_label(worksheet, "Mínima", [9]),
+            "maximum_label": find_cell_after_label(worksheet, "Máxima", [9]),
+        },
+        "correction_bands": correction_bands,
+        "correction_cells": correction_cells,
+        "correction_factors": factors,
+        "correction_operations": operations,
+    }
+
+
+@st.cache_data(show_spinner=False)
+def load_equipment_configs(form_key: str) -> dict[str, dict[str, Any]]:
+    workbook = load_template_workbook(form_key, data_only=True)
+    equipment_configs: dict[str, dict[str, Any]] = {}
+    definition = get_form_definition(form_key)
+
+    for sheet_name in workbook.sheetnames:
+        if sheet_name in definition["sheet_exclusions"]:
+            continue
+
+        worksheet = workbook[sheet_name]
+        extractor = definition["extractor"]
+        if extractor == "cold_equipment":
+            equipment_configs[sheet_name] = extract_cold_equipment_config(sheet_name, worksheet)
+        elif extractor == "incubators":
+            equipment_configs[sheet_name] = extract_incubator_config(sheet_name, worksheet)
+        else:
+            equipment_configs[sheet_name] = extract_ambient_config(sheet_name, worksheet)
+
+        if not definition["supports_corrections"]:
+            equipment_configs[sheet_name]["correction_bands"] = {}
+            equipment_configs[sheet_name]["correction_cells"] = {}
+            equipment_configs[sheet_name]["correction_factors"] = {}
+            equipment_configs[sheet_name]["correction_operations"] = {}
+
+    return equipment_configs
+
+
+def build_default_payload(
+    equipment_code: str = DEFAULT_EQUIPMENT_CODE,
+    form_key: str = DEFAULT_FORM_KEY,
+) -> dict[str, Any]:
+    today = date.today()
+    equipment_configs = load_equipment_configs(form_key)
+    equipment_config = equipment_configs[equipment_code]
+    definition = get_form_definition(form_key)
+    return {
+        "metadata": {
+            "form_key": form_key,
+            "form_label": definition["label"],
+            "month": today.month,
+            "year": today.year,
+            "equipment_code": equipment_config["equipment_code"],
+            "laboratory": equipment_config["laboratory"],
+            "equipment_name": equipment_config["equipment_name"],
+            "brand": equipment_config["brand"],
+            "model": equipment_config["model"],
+            "serial_number": equipment_config["serial_number"],
+            "inventory_code": equipment_config["inventory_code"],
+            "temperature_label": equipment_config["primary_label"],
+            "minimum_label": equipment_config["minimum_label"],
+            "maximum_label": equipment_config["maximum_label"],
+            "secondary_label": equipment_config.get("secondary_label", ""),
+            "secondary_minimum_label": equipment_config.get("secondary_minimum_label", ""),
+            "secondary_maximum_label": equipment_config.get("secondary_maximum_label", ""),
+        },
+        "metadata_cells": dict(equipment_config.get("metadata_cells", {})),
+        "correction_bands": dict(equipment_config.get("correction_bands", {})),
+        "correction_cells": dict(equipment_config.get("correction_cells", {})),
+        "correction_factors": dict(equipment_config["correction_factors"]),
+        "correction_operations": dict(equipment_config["correction_operations"]),
+        "non_working_days": [],
+        "daily_records": {
+            str(day): asdict(default_daily_capture(day)) for day in range(1, 32)
+        },
+        "monthly_closure": {
+            "observations": "",
+            "reviewed_by": "",
+            "reviewed_on": today.isoformat(),
+        },
+    }
+
+
+def ensure_data_dir() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def merge_payload_with_saved_data(
+    data: dict[str, Any],
+    equipment_code: str = DEFAULT_EQUIPMENT_CODE,
+    form_key: str = DEFAULT_FORM_KEY,
+) -> dict[str, Any]:
+    default_payload = build_default_payload(equipment_code=equipment_code, form_key=form_key)
+    default_payload["metadata"].update(data.get("metadata", {}))
+    default_payload["metadata_cells"] = data.get("metadata_cells", default_payload.get("metadata_cells", {}))
+    default_payload["correction_bands"].update(data.get("correction_bands", {}))
+    default_payload["correction_cells"] = data.get("correction_cells", default_payload.get("correction_cells", {}))
+    default_payload["correction_factors"].update(data.get("correction_factors", {}))
+    default_payload["correction_operations"].update(data.get("correction_operations", {}))
+    default_payload["non_working_days"] = data.get("non_working_days", [])
+    default_payload["monthly_closure"].update(data.get("monthly_closure", {}))
+
+    incoming_records = data.get("daily_records", {})
+    for day in range(1, 32):
+        day_key = str(day)
+        default_payload["daily_records"][day_key].update(incoming_records.get(day_key, {}))
+        record = default_payload["daily_records"][day_key]
+        if "temperatures" in record and "measured_temperatures" not in incoming_records.get(day_key, {}):
+            record["measured_temperatures"] = record.pop("temperatures")
+        record.setdefault("measured_temperatures", ["", "", ""])
+        record.setdefault("corrected_temperatures", ["", "", ""])
+        record.setdefault("secondary_measurements", ["", "", ""])
+        record.setdefault("performed_by_slots", ["", "", ""])
+
+    return default_payload
+
+
+def get_period_key(payload: dict[str, Any]) -> str:
+    return (
+        f"{payload['metadata']['form_key']}_"
+        f"{payload['metadata']['equipment_code']}_"
+        f"{int(payload['metadata']['year'])}_{int(payload['metadata']['month']):02d}"
+    )
+
+
+def get_period_file_from_values(form_key: str, equipment_code: str, year: int, month: int) -> Path:
+    ensure_data_dir()
+    normalized_form = form_key.lower().replace("-", "_")
+    normalized_code = equipment_code.lower().replace("-", "_")
+    return DATA_DIR / f"{normalized_form}_{normalized_code}_{year}_{month:02d}.json"
+
+
+def get_period_file(payload: dict[str, Any]) -> Path:
+    return get_period_file_from_values(
+        str(payload["metadata"]["form_key"]),
+        str(payload["metadata"]["equipment_code"]),
+        int(payload["metadata"]["year"]),
+        int(payload["metadata"]["month"]),
+    )
+
+
+def list_saved_periods() -> list[dict[str, Any]]:
+    ensure_data_dir()
+    periods: list[dict[str, Any]] = []
+    for file in sorted(DATA_DIR.glob("*.json")):
+        try:
+            data = json.loads(file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        metadata = data.get("metadata", {})
+        form_key = metadata.get("form_key")
+        equipment_code = metadata.get("equipment_code")
+        month = metadata.get("month")
+        year = metadata.get("year")
+        if not form_key or not equipment_code or not month or not year:
+            continue
+
+        periods.append(
+            {
+                "form_key": str(form_key),
+                "equipment_code": str(equipment_code),
+                "month": int(month),
+                "year": int(year),
+                "file_name": file.name,
+            }
+        )
+
+    return periods
+
+
+def clear_period_widget_state(period_key: str) -> None:
+    keys_to_delete = [
+        key for key in st.session_state.keys() if period_key in str(key)
+    ]
+    for key in keys_to_delete:
+        del st.session_state[key]
+
+
+def load_saved_payload(
+    form_key: str = DEFAULT_FORM_KEY,
+    equipment_code: str = DEFAULT_EQUIPMENT_CODE,
+    year: int | None = None,
+    month: int | None = None,
+) -> dict[str, Any]:
+    default_payload = build_default_payload(equipment_code=equipment_code, form_key=form_key)
+    if year is None:
+        year = int(default_payload["metadata"]["year"])
+    if month is None:
+        month = int(default_payload["metadata"]["month"])
+
+    data_file = get_period_file_from_values(form_key, equipment_code, year, month)
+    if not data_file.exists():
+        default_payload["metadata"]["year"] = year
+        default_payload["metadata"]["month"] = month
+        return default_payload
+
+    with data_file.open("r", encoding="utf-8") as file:
+        data = json.load(file)
+
+    return merge_payload_with_saved_data(data, equipment_code=equipment_code, form_key=form_key)
+
+
+def save_payload(payload: dict[str, Any]) -> None:
+    data_file = get_period_file(payload)
+    with data_file.open("w", encoding="utf-8") as file:
+        json.dump(payload, file, ensure_ascii=False, indent=2)
+
+
+def get_supabase_status() -> tuple[bool, str]:
+    has_url = bool(os.getenv("SUPABASE_URL"))
+    has_key = bool(os.getenv("SUPABASE_KEY"))
+    if has_url and has_key:
+        return True, "Configurado"
+    return False, "Pendiente"
+
+
+def get_row_group(payload: dict[str, Any], day: int) -> dict[str, int]:
+    layout = get_form_definition(payload["metadata"]["form_key"])["layout"]
+    return layout["top"] if day <= 16 else layout["bottom"]
+
+
+def get_day_column(day: int, slot_index: int) -> int:
+    if day <= 16:
+        return DAY_BLOCK_START_COLUMNS[day] + slot_index
+    return DAY_BLOCK_START_COLUMNS[day] + slot_index
+
+
+def normalize_excel_date(date_value: str) -> str:
+    if not date_value:
+        return ""
+
+    try:
+        parsed = datetime.fromisoformat(date_value)
+        return parsed.strftime("%d/%m/%Y")
+    except ValueError:
+        return date_value
+
+
+def get_effective_record_date(record: dict[str, Any]) -> str:
+    recorded_on = record.get("recorded_on", "").strip()
+    if recorded_on:
+        return normalize_excel_date(recorded_on)
+    return ""
+
+
+def get_format_specific_copy(payload: dict[str, Any]) -> dict[str, str]:
+    form_key = payload["metadata"]["form_key"]
+    if form_key == "incubadoras":
+        return {
+            "config_intro": "Este formato registra temperatura y %CO2. La corrección aplica solo a la temperatura.",
+            "daily_intro": "Cada día laborado captura temperatura, %CO2, tres responsables por horario y un verificador del bloque.",
+            "notes_label": "Incidencia del día (opcional)",
+        }
+    if form_key == "condiciones_ambientales":
+        return {
+            "config_intro": "Este formato monitorea condiciones ambientales con un thermohigrómetro y rangos de corrección específicos por hoja.",
+            "daily_intro": "Cada día laborado registra lecturas ambientales por horario, responsables, verificación y fecha del bloque.",
+            "notes_label": "Incidencia ambiental del día (opcional)",
+        }
+    if form_key == "ultracongeladores":
+        return {
+            "config_intro": "Este formato controla ultracongeladores. Algunos equipos usan factores reales y otros están marcados como N/A.",
+            "daily_intro": "Cada día laborado captura temperatura por horario, responsables, verificación y fecha del bloque.",
+            "notes_label": "Incidencia del ultracongelador (opcional)",
+        }
+    if form_key == "refrigeradores":
+        return {
+            "config_intro": "Este formato controla refrigeradores con rangos y factores específicos por equipo.",
+            "daily_intro": "Cada día laborado captura temperatura por horario, responsables, verificación y fecha del bloque.",
+            "notes_label": "Incidencia del refrigerador (opcional)",
+        }
+    return {
+        "config_intro": "Este formato controla congeladores con rangos y factores específicos por equipo.",
+        "daily_intro": "Cada día laborado captura temperatura por horario, responsables, verificación y fecha del bloque.",
+        "notes_label": "Incidencia del congelador (opcional)",
+    }
+
+
+def render_sidebar(
+    payload: dict[str, Any],
+    form_keys: list[str],
+    equipment_codes: list[str],
+) -> tuple[str, str]:
+    supabase_enabled, supabase_status = get_supabase_status()
+    st.sidebar.title("Formatos")
+    st.sidebar.write(f"Sesion: `{st.session_state.get('usuario_email', '')}`")
+    st.sidebar.write(f"Perfil: `{st.session_state.get('rol_usuario', 'captura')}`")
+    if st.sidebar.button("Cerrar sesion", use_container_width=True):
+        st.session_state["autenticado"] = False
+        st.session_state["usuario_email"] = ""
+        st.session_state["es_admin"] = False
+        st.session_state["rol_usuario"] = "captura"
+        st.rerun()
+
+    selected_form_key = st.sidebar.selectbox(
+        "Formato",
+        options=form_keys,
+        index=form_keys.index(payload["metadata"]["form_key"]),
+        format_func=lambda key: FORM_DEFINITIONS[key]["label"],
+        key="sidebar_form_key",
+    )
+    selected_equipment = st.sidebar.selectbox(
+        "Equipo",
+        options=equipment_codes,
+        index=equipment_codes.index(payload["metadata"]["equipment_code"]),
+        key="sidebar_equipment",
+    )
+    st.sidebar.caption(payload["metadata"]["form_label"])
+    st.sidebar.write(f"Supabase: `{supabase_status}`")
+    st.sidebar.write(
+        "Modo actual: "
+        + ("listo para integrar base remota" if supabase_enabled else "persistencia local en JSON")
+    )
+    st.sidebar.write(f"Plantilla detectada: `{get_form_definition(payload['metadata']['form_key'])['source_file']}`")
+    st.sidebar.write(
+        f"Mes de trabajo: `{MONTHS[payload['metadata']['month']]} {payload['metadata']['year']}`"
+    )
+    st.sidebar.write(f"Laboratorio: `{payload['metadata']['laboratory']}`")
+    st.sidebar.write(f"Equipo / instrumento: `{payload['metadata']['equipment_name']}`")
+    st.sidebar.write(f"Marca: `{payload['metadata']['brand']}`")
+    st.sidebar.write(f"Modelo: `{payload['metadata']['model']}`")
+    st.sidebar.write(f"Serie: `{payload['metadata']['serial_number']}`")
+    st.sidebar.write(f"Inventario / código: `{payload['metadata']['inventory_code']}`")
+    st.sidebar.divider()
+    st.sidebar.caption("Periodos guardados")
+    saved_periods = [
+        period
+        for period in list_saved_periods()
+        if period["equipment_code"] == selected_equipment and period["form_key"] == selected_form_key
+    ]
+    if saved_periods:
+        labels = [
+            f"{MONTHS[period['month']]} {period['year']}"
+            for period in saved_periods
+        ]
+        current_label = f"{MONTHS[payload['metadata']['month']]} {payload['metadata']['year']}"
+        default_index = labels.index(current_label) if current_label in labels else 0
+        selected_period_label = st.sidebar.selectbox(
+            "Abrir periodo guardado",
+            options=labels,
+            index=default_index,
+            key=f"saved_periods_{selected_equipment}",
+        )
+        selected_period = saved_periods[labels.index(selected_period_label)]
+        if (
+            selected_period["month"] != int(payload["metadata"]["month"])
+            or selected_period["year"] != int(payload["metadata"]["year"])
+            or selected_equipment != payload["metadata"]["equipment_code"]
+        ):
+            target_period_key = f"{selected_equipment}_{selected_period['year']}_{selected_period['month']:02d}"
+            target_period_key = f"{selected_form_key}_{target_period_key}"
+            clear_period_widget_state(target_period_key)
+            st.session_state.payload = load_saved_payload(
+                form_key=selected_form_key,
+                equipment_code=selected_equipment,
+                year=selected_period["year"],
+                month=selected_period["month"],
+            )
+            st.session_state.period_key = get_period_key(st.session_state.payload)
+            st.rerun()
+    else:
+        st.sidebar.write("No hay periodos guardados para este congelador.")
+
+    render_user_admin_sidebar()
+    return selected_form_key, selected_equipment
+
+
+def render_configuration(payload: dict[str, Any]) -> None:
+    st.subheader("1. Configuracion del mes")
+    metadata = payload["metadata"]
+    correction_bands = payload["correction_bands"]
+    correction_factors = payload["correction_factors"]
+    correction_operations = payload["correction_operations"]
+    period_key = st.session_state.get("period_key", get_period_key(payload))
+    copy = get_format_specific_copy(payload)
+    allow_sensitive_edits = can_edit_sensitive_configuration()
+
+    month_col, year_col = st.columns(2)
+    metadata["month"] = month_col.selectbox(
+        "Mes",
+        options=list(MONTHS.keys()),
+        index=list(MONTHS.keys()).index(metadata["month"]),
+        format_func=lambda value: MONTHS[value],
+    )
+    metadata["year"] = year_col.number_input(
+        "Año",
+        min_value=2024,
+        max_value=2100,
+        value=int(metadata["year"]),
+        step=1,
+    )
+    st.caption(copy["config_intro"])
+    if allow_sensitive_edits:
+        st.caption("Edicion sensible habilitada para este perfil.")
+    else:
+        st.caption("Rangos, inventario y metadata del equipo estan en solo lectura para este perfil.")
+
+    definition = get_form_definition(metadata["form_key"])
+    summary_cols = st.columns(4)
+    equipment_name_key = f"equipment_name_{period_key}"
+    if equipment_name_key not in st.session_state:
+        st.session_state[equipment_name_key] = str(metadata["equipment_name"])
+    metadata["equipment_name"] = summary_cols[0].text_input(
+        "Equipo / instrumento",
+        key=equipment_name_key,
+        disabled=not allow_sensitive_edits,
+    )
+    brand_key = f"brand_{period_key}"
+    if brand_key not in st.session_state:
+        st.session_state[brand_key] = str(metadata["brand"])
+    metadata["brand"] = summary_cols[1].text_input(
+        "Marca",
+        key=brand_key,
+        disabled=not allow_sensitive_edits,
+    )
+    model_key = f"model_{period_key}"
+    if model_key not in st.session_state:
+        st.session_state[model_key] = str(metadata["model"])
+    metadata["model"] = summary_cols[2].text_input(
+        "Modelo",
+        key=model_key,
+        disabled=not allow_sensitive_edits,
+    )
+    inventory_key = f"inventory_{period_key}"
+    if inventory_key not in st.session_state:
+        st.session_state[inventory_key] = str(metadata["inventory_code"])
+    metadata["inventory_code"] = summary_cols[3].text_input(
+        "Inventario / código",
+        key=inventory_key,
+        disabled=not allow_sensitive_edits,
+    )
+
+    detail_cols = st.columns(4)
+    serial_key = f"serial_{period_key}"
+    if serial_key not in st.session_state:
+        st.session_state[serial_key] = str(metadata["serial_number"])
+    metadata["serial_number"] = detail_cols[0].text_input(
+        "Serie",
+        key=serial_key,
+        disabled=not allow_sensitive_edits,
+    )
+    normal_key = f"normal_{period_key}"
+    if normal_key not in st.session_state:
+        st.session_state[normal_key] = str(metadata["temperature_label"])
+    metadata["temperature_label"] = detail_cols[1].text_input(
+        "Valor normal",
+        key=normal_key,
+        disabled=not allow_sensitive_edits,
+    )
+    minimum_key = f"minimum_{period_key}"
+    if minimum_key not in st.session_state:
+        st.session_state[minimum_key] = str(metadata["minimum_label"])
+    metadata["minimum_label"] = detail_cols[2].text_input(
+        "Mínima",
+        key=minimum_key,
+        disabled=not allow_sensitive_edits,
+    )
+    maximum_key = f"maximum_{period_key}"
+    if maximum_key not in st.session_state:
+        st.session_state[maximum_key] = str(metadata["maximum_label"])
+    metadata["maximum_label"] = detail_cols[3].text_input(
+        "Máxima",
+        key=maximum_key,
+        disabled=not allow_sensitive_edits,
+    )
+
+    if metadata.get("secondary_label"):
+        st.markdown("**Variable secundaria visible**")
+        secondary_cols = st.columns(3)
+        secondary_label_key = f"secondary_label_{period_key}"
+        if secondary_label_key not in st.session_state:
+            st.session_state[secondary_label_key] = str(metadata["secondary_label"])
+        metadata["secondary_label"] = secondary_cols[0].text_input(
+            "Nombre de la segunda variable",
+            key=secondary_label_key,
+            disabled=not allow_sensitive_edits,
+        )
+        secondary_minimum_key = f"secondary_minimum_{period_key}"
+        if secondary_minimum_key not in st.session_state:
+            st.session_state[secondary_minimum_key] = str(metadata.get("secondary_minimum_label", ""))
+        metadata["secondary_minimum_label"] = secondary_cols[1].text_input(
+            "Mínima secundaria",
+            key=secondary_minimum_key,
+            disabled=not allow_sensitive_edits,
+        )
+        secondary_maximum_key = f"secondary_maximum_{period_key}"
+        if secondary_maximum_key not in st.session_state:
+            st.session_state[secondary_maximum_key] = str(metadata.get("secondary_maximum_label", ""))
+        metadata["secondary_maximum_label"] = secondary_cols[2].text_input(
+            "Máxima secundaria",
+            key=secondary_maximum_key,
+            disabled=not allow_sensitive_edits,
+        )
+
+    if definition["supports_corrections"] and correction_factors:
+        st.caption("Factores de correccion editables por rango para este equipo.")
+        factor_labels = list(correction_factors.keys())
+        factor_cols = st.columns(len(factor_labels))
+        for factor_col, factor_key in zip(factor_cols, factor_labels):
+            operation_col, value_col = factor_col.columns([1, 2])
+            label = correction_bands.get(factor_key, {}).get("label", factor_key.replace("_", " ").title())
+            correction_operations[factor_key] = operation_col.selectbox(
+                f"Operacion {label}",
+                options=["+", "-"],
+                index=0 if correction_operations[factor_key] == "+" else 1,
+                key=f"operation_{period_key}_{factor_key}",
+                disabled=not allow_sensitive_edits,
+            )
+            correction_factors[factor_key] = value_col.number_input(
+                label,
+                value=float(correction_factors[factor_key]),
+                step=0.01,
+                format="%.2f",
+                key=f"factor_{period_key}_{factor_key}",
+                disabled=not allow_sensitive_edits,
+            )
+    else:
+        st.caption(
+            "Este equipo no usa factores de corrección editables en la plantilla o están marcados como N/A."
+        )
+
+
+def render_non_working_days(payload: dict[str, Any]) -> None:
+    st.subheader("2. Dias no laborados")
+    st.caption("Marca manualmente los dias que no aplican para la toma. Cada boton activa o desactiva el dia.")
+    allow_schedule_edits = can_edit_schedule()
+    if not allow_schedule_edits:
+        st.caption("Este apartado esta en solo lectura para tu perfil.")
+    period_key = st.session_state.get("period_key", get_period_key(payload))
+    selected_days = set(int(day) for day in payload["non_working_days"])
+    days = list(range(1, 32))
+    for week_start in range(0, len(days), 7):
+        cols = st.columns(7)
+        for offset, day in enumerate(days[week_start:week_start + 7]):
+            checkbox_key = f"non_working_{period_key}_{day}"
+            if checkbox_key not in st.session_state:
+                st.session_state[checkbox_key] = day in selected_days
+            is_selected = cols[offset].checkbox(
+                f"{day}",
+                key=checkbox_key,
+                disabled=not allow_schedule_edits,
+            )
+            if is_selected:
+                selected_days.add(day)
+            else:
+                selected_days.discard(day)
+    payload["non_working_days"] = sorted(selected_days)
+
+    for day in range(1, 32):
+        payload["daily_records"][str(day)]["active"] = day not in payload["non_working_days"]
+
+
+def render_daily_capture(payload: dict[str, Any]) -> None:
+    st.subheader("3. Captura diaria")
+    copy = get_format_specific_copy(payload)
+    st.caption(copy["daily_intro"])
+    allow_daily_edits = can_edit_daily_records()
+    allow_verification_edits = can_close_period()
+    if not allow_daily_edits:
+        st.caption("La captura diaria esta en solo lectura para tu perfil.")
+    period_key = st.session_state.get("period_key", get_period_key(payload))
+    definition = get_form_definition(payload["metadata"]["form_key"])
+    metrics = definition["metrics"]
+
+    active_days = [
+        day for day in range(1, 32) if payload["daily_records"][str(day)]["active"]
+    ]
+    if not active_days:
+        st.info("No hay dias activos. Marca al menos un dia laborado para capturar informacion.")
+        return
+
+    for day in active_days:
+        record = payload["daily_records"][str(day)]
+        with st.expander(f"Dia {day}", expanded=day == active_days[0]):
+            for metric in metrics:
+                if len(metrics) > 1:
+                    if metric["key"] == "measured_temperatures":
+                        heading = metadata_label = payload["metadata"].get("temperature_label", "Temperatura")
+                    else:
+                        heading = payload["metadata"].get("secondary_label", "Variable secundaria")
+                    st.markdown(f"**{heading}**")
+                metric_cols = st.columns(3)
+                metric_values: list[str] = []
+                corrected_values: list[str] = []
+                for index, label in enumerate(TIME_SLOTS):
+                    input_key = f"{metric['key']}_{period_key}_{day}_{index}"
+                    if input_key not in st.session_state:
+                        st.session_state[input_key] = record[metric["key"]][index]
+                    value = metric_cols[index].text_input(
+                        f"{metric['label']} {label}",
+                        key=input_key,
+                        disabled=not allow_daily_edits,
+                        placeholder="-20.3" if metric["unit"] == "°C" else "",
+                    )
+                    metric_values.append(value)
+                    if metric.get("corrected", False):
+                        corrected_value = calculate_corrected_temperature(
+                            value,
+                            payload["correction_bands"],
+                            payload["correction_factors"],
+                            payload["correction_operations"],
+                        )
+                        corrected_values.append(corrected_value)
+                        metric_cols[index].caption(
+                            f"Corregida: {corrected_value}" if corrected_value else "Corregida: pendiente"
+                        )
+                record[metric["key"]] = metric_values
+                if metric["key"] == "measured_temperatures":
+                    record["corrected_temperatures"] = corrected_values
+
+            actor_cols = st.columns(3)
+            performed_by_slots = []
+            for index, label in enumerate(TIME_SLOTS):
+                input_key = f"performed_{period_key}_{day}_{index}"
+                if input_key not in st.session_state:
+                    st.session_state[input_key] = record["performed_by_slots"][index]
+                performed_value = actor_cols[index].text_input(
+                    f"Realizo {label}",
+                    key=input_key,
+                    disabled=not allow_daily_edits,
+                )
+                performed_by_slots.append(performed_value)
+                performed_signature_name = get_signature_display_name(performed_value)
+                if performed_value.strip():
+                    if performed_signature_name:
+                        actor_cols[index].caption(f"Firma detectada: {performed_signature_name}")
+                    else:
+                        actor_cols[index].caption("Firma digital: sin coincidencia")
+                else:
+                    actor_cols[index].caption("Firma digital: pendiente")
+            record["performed_by_slots"] = performed_by_slots
+
+            verifier_cols = st.columns(3)
+            verified_key = f"verified_{period_key}_{day}"
+            if verified_key not in st.session_state:
+                st.session_state[verified_key] = record["verified_by"]
+            record["verified_by"] = verifier_cols[0].text_input(
+                "Verifico bloque del dia",
+                key=verified_key,
+                disabled=not allow_verification_edits,
+            )
+            verified_signature_name = get_signature_display_name(record["verified_by"])
+            if record["verified_by"].strip():
+                if verified_signature_name:
+                    verifier_cols[0].caption(f"Firma detectada: {verified_signature_name}")
+                else:
+                    verifier_cols[0].caption("Firma digital: sin coincidencia")
+            else:
+                verifier_cols[0].caption("Firma digital: pendiente")
+            current_date = get_period_default_date(payload, day, record["recorded_on"])
+            date_key = f"date_{period_key}_{day}"
+            if date_key not in st.session_state:
+                st.session_state[date_key] = current_date
+            record["recorded_on"] = verifier_cols[1].date_input(
+                "Fecha de verificacion",
+                min_value=date(
+                    int(payload["metadata"]["year"]),
+                    int(payload["metadata"]["month"]),
+                    1,
+                ),
+                max_value=date(
+                    int(payload["metadata"]["year"]),
+                    int(payload["metadata"]["month"]),
+                    monthrange(
+                        int(payload["metadata"]["year"]),
+                        int(payload["metadata"]["month"]),
+                    )[1],
+                ),
+                key=date_key,
+                disabled=not allow_verification_edits,
+            ).isoformat()
+
+            notes_key = f"notes_{period_key}_{day}"
+            if notes_key not in st.session_state:
+                st.session_state[notes_key] = record.get("notes", "")
+            record["notes"] = st.text_input(
+                copy["notes_label"],
+                key=notes_key,
+                disabled=not allow_daily_edits,
+            )
+
+
+def parse_streamlit_date(value: str) -> date:
+    try:
+        return datetime.fromisoformat(value).date()
+    except ValueError:
+        return date.today()
+
+
+def get_period_default_date(payload: dict[str, Any], day: int, recorded_on: str) -> date:
+    year = int(payload["metadata"]["year"])
+    month = int(payload["metadata"]["month"])
+    last_day = monthrange(year, month)[1]
+
+    if recorded_on.strip():
+        parsed = parse_streamlit_date(recorded_on)
+        if parsed.year == year and parsed.month == month:
+            return parsed
+
+    return date(year, month, min(day, last_day))
+
+
+def render_monthly_closure(payload: dict[str, Any]) -> None:
+    st.subheader("4. Cierre del formato")
+    closure = payload["monthly_closure"]
+    period_key = st.session_state.get("period_key", get_period_key(payload))
+    allow_closure_edits = can_close_period()
+    if not allow_closure_edits:
+        st.caption("El cierre del formato esta en solo lectura para tu perfil.")
+
+    observations_key = f"observations_{period_key}"
+    if observations_key not in st.session_state:
+        st.session_state[observations_key] = closure["observations"]
+    closure["observations"] = st.text_area(
+        "Observaciones",
+        key=observations_key,
+        height=120,
+        placeholder="Anota incidencias, mantenimiento, ajustes o aclaraciones del periodo.",
+        disabled=not allow_closure_edits,
+    )
+    review_cols = st.columns(2)
+    reviewed_by_key = f"reviewed_by_{period_key}"
+    if reviewed_by_key not in st.session_state:
+        st.session_state[reviewed_by_key] = closure["reviewed_by"]
+    closure["reviewed_by"] = review_cols[0].text_input(
+        "Reviso",
+        key=reviewed_by_key,
+        disabled=not allow_closure_edits,
+    )
+    reviewed_signature_name = get_signature_display_name(closure["reviewed_by"])
+    if closure["reviewed_by"].strip():
+        if reviewed_signature_name:
+            review_cols[0].caption(f"Firma detectada: {reviewed_signature_name}")
+        else:
+            review_cols[0].caption("Firma digital: sin coincidencia")
+    else:
+        review_cols[0].caption("Firma digital: pendiente")
+    reviewed_on_key = f"reviewed_on_{period_key}"
+    if reviewed_on_key not in st.session_state:
+        st.session_state[reviewed_on_key] = parse_streamlit_date(closure["reviewed_on"])
+    closure["reviewed_on"] = review_cols[1].date_input(
+        "Fecha de revision",
+        key=reviewed_on_key,
+        disabled=not allow_closure_edits,
+    ).isoformat()
+
+
+def validate_payload(payload: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    definition = get_form_definition(payload["metadata"]["form_key"])
+    for day in range(1, 32):
+        record = payload["daily_records"][str(day)]
+        if not record["active"]:
+            continue
+        for metric in definition["metrics"]:
+            if not all(value.strip() for value in record[metric["key"]]):
+                errors.append(f"Dia {day}: faltan capturas de {metric['label'].lower()}.")
+        if not all(value.strip() for value in record["performed_by_slots"]):
+            errors.append(f"Dia {day}: faltan responsables en una o mas horas.")
+        if not record["verified_by"].strip():
+            errors.append(f"Dia {day}: falta 'Verifico'.")
+        if not record["recorded_on"].strip():
+            errors.append(f"Dia {day}: falta la fecha.")
+
+    if not payload["monthly_closure"]["reviewed_by"].strip():
+        errors.append("Falta capturar quien reviso el formato.")
+
+    return errors
+
+
+def populate_template(payload: dict[str, Any]) -> BytesIO:
+    form_key = payload["metadata"]["form_key"]
+    definition = get_form_definition(form_key)
+    workbook = load_template_workbook(form_key)
+    target_sheet_name = str(payload["metadata"]["equipment_code"])
+    worksheet = workbook[target_sheet_name]
+    ensure_status_row_merges(worksheet, payload)
+
+    metadata = payload["metadata"]
+    metadata_cells = payload.get("metadata_cells", {})
+    editable_metadata_map = {
+        "equipment_name": metadata.get("equipment_name", ""),
+        "brand": metadata.get("brand", ""),
+        "model": metadata.get("model", ""),
+        "inventory_code": metadata.get("inventory_code", ""),
+        "serial_number": metadata.get("serial_number", ""),
+        "temperature_label": metadata.get("temperature_label", ""),
+        "minimum_label": metadata.get("minimum_label", ""),
+        "maximum_label": metadata.get("maximum_label", ""),
+        "secondary_label": metadata.get("secondary_label", ""),
+        "secondary_minimum_label": metadata.get("secondary_minimum_label", ""),
+        "secondary_maximum_label": metadata.get("secondary_maximum_label", ""),
+    }
+    for field_key, value in editable_metadata_map.items():
+        cell = metadata_cells.get(field_key)
+        if cell:
+            write_template_cell(worksheet, cell, value)
+
+    month_cell = HEADER_CELL_MAP["month"]
+    year_cell = HEADER_CELL_MAP["year"]
+    if form_key == "condiciones_ambientales":
+        month_cell = "V6"
+        year_cell = "AO6"
+    write_template_cell(worksheet, month_cell, MONTHS[payload["metadata"]["month"]])
+    write_template_cell(worksheet, year_cell, payload["metadata"]["year"])
+
+    if definition["supports_corrections"]:
+        factor_cells = payload.get("correction_cells", {})
+        for factor_key, cell in factor_cells.items():
+            if factor_key not in payload["correction_factors"]:
+                continue
+            factor_value = float(payload["correction_factors"][factor_key])
+            if payload["correction_operations"][factor_key] == "-":
+                factor_value *= -1
+            write_template_cell(worksheet, cell, factor_value)
+
+    footer_map = definition["layout"]["footer"]
+
+    for day in range(1, 32):
+        record = payload["daily_records"][str(day)]
+        row_group = get_row_group(payload, day)
+        start_col = get_day_column(day, 0)
+
+        if not record["active"]:
+            for index in range(3):
+                write_slot_value(
+                    worksheet,
+                    row_group["metric_1"],
+                    start_col + index,
+                    "N/A",
+                    font_size=18,
+                    rotate_like_hours=True,
+                )
+                if "metric_2" in row_group:
+                    write_slot_value(
+                        worksheet,
+                        row_group["metric_2"],
+                        start_col + index,
+                        "N/A",
+                        font_size=18,
+                        rotate_like_hours=True,
+                    )
+                write_slot_value(
+                    worksheet,
+                    row_group["performed_by"],
+                    start_col + index,
+                    "NO LABORADO",
+                    font_size=18,
+                    rotate_like_hours=True,
+                )
+            write_day_status(worksheet, row_group["verified_by"], start_col, "")
+            write_day_status(
+                worksheet,
+                row_group["date"],
+                start_col,
+                "",
+            )
+            continue
+
+        primary_values = (
+            record["corrected_temperatures"]
+            if any(record["corrected_temperatures"]) and definition["metrics"][0].get("corrected")
+            else record["measured_temperatures"]
+        )
+        primary_unit = definition["metrics"][0]["unit"]
+        for index, temperature in enumerate(primary_values):
+            write_slot_value(
+                worksheet,
+                row_group["metric_1"],
+                start_col + index,
+                f"{temperature} {primary_unit}".strip() if temperature else "",
+                font_size=18,
+                rotate_like_hours=True,
+            )
+
+        if len(definition["metrics"]) > 1 and "metric_2" in row_group:
+            second_metric = definition["metrics"][1]
+            for index, value in enumerate(record[second_metric["key"]]):
+                write_slot_value(
+                    worksheet,
+                    row_group["metric_2"],
+                    start_col + index,
+                    f"{value} {second_metric['unit']}".strip() if value else "",
+                    font_size=18,
+                    rotate_like_hours=True,
+                )
+
+        for index, performed_by in enumerate(record["performed_by_slots"]):
+            write_signature_or_text_slot(
+                worksheet,
+                row_group["performed_by"],
+                start_col + index,
+                performed_by,
+                width=70,
+                height=170,
+            )
+        write_signature_or_text_status(
+            worksheet,
+            row_group["verified_by"],
+            start_col,
+            record["verified_by"],
+            width=120,
+            height=42,
+        )
+        write_day_status(
+            worksheet,
+            row_group["date"],
+            start_col,
+            get_effective_record_date(record),
+        )
+
+    write_template_cell(worksheet, footer_map["observations"], payload["monthly_closure"]["observations"])
+    write_signature_or_text_cell(
+        worksheet,
+        footer_map["reviewed_by"],
+        payload["monthly_closure"]["reviewed_by"],
+        width=180,
+        height=52,
+    )
+    write_template_cell(
+        worksheet,
+        footer_map["reviewed_on"],
+        normalize_excel_date(payload["monthly_closure"]["reviewed_on"]),
+    )
+
+    for index, sheet_name in enumerate(workbook.sheetnames):
+        sheet = workbook[sheet_name]
+        if sheet_name == target_sheet_name:
+            sheet.sheet_state = "visible"
+            workbook.active = index
+        else:
+            sheet.sheet_state = "hidden"
+
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return output
+
+
+def load_template_workbook(form_key: str, data_only: bool = False):
+    return load_workbook(BytesIO(get_template_bytes(form_key)), data_only=data_only)
+
+
+def resolve_writable_coordinate(worksheet: Any, coordinate: str) -> str:
+    for merged_range in worksheet.merged_cells.ranges:
+        if coordinate in merged_range:
+            return worksheet.cell(merged_range.min_row, merged_range.min_col).coordinate
+    return coordinate
+
+
+def write_template_cell(worksheet: Any, coordinate: str, value: Any) -> None:
+    worksheet[resolve_writable_coordinate(worksheet, coordinate)] = value
+
+
+def normalize_signature_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_text = "".join(char for char in normalized if not unicodedata.combining(char))
+    ascii_text = re.sub(r"[_\-.,/]+", " ", ascii_text.lower())
+    ascii_text = re.sub(r"\s+", " ", ascii_text).strip()
+    return ascii_text
+
+
+def strip_signature_suffix(file_stem: str) -> str:
+    cleaned = re.sub(r"_(azul|negro|firma)$", "", file_stem, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+\d+$", "", cleaned).strip()
+    return cleaned
+
+
+def build_signature_aliases(tokens: list[str], normalized_name: str) -> dict[str, int]:
+    aliases: dict[str, int] = {normalized_name: 1000}
+    collapsed_name = normalized_name.replace(" ", "")
+    if collapsed_name:
+        aliases[collapsed_name] = 980
+
+    for token in tokens:
+        aliases.setdefault(token, 120)
+        aliases.setdefault(f"{token[0]} {token}", 890)
+        aliases.setdefault(f"{token[0]}.{token}", 890)
+
+    for index, token in enumerate(tokens):
+        for other_index, other_token in enumerate(tokens):
+            if index == other_index:
+                continue
+
+            aliases.setdefault(f"{token} {other_token}", 340)
+            aliases.setdefault(f"{other_token} {token}", 330)
+
+            initial = other_token[0]
+            aliases.setdefault(f"{initial} {token}", 900)
+            aliases.setdefault(f"{initial}.{token}", 900)
+            aliases.setdefault(f"{token} {initial}", 860)
+            aliases.setdefault(f"{token}.{initial}", 860)
+
+            aliases.setdefault(f"{other_token} {token}", 780)
+            aliases.setdefault(f"{token} {other_token}", 780)
+
+    if len(tokens) >= 2:
+        primary_surname = tokens[0]
+        for given_token in tokens[1:]:
+            initial = given_token[0]
+            aliases[f"{initial} {primary_surname}"] = max(aliases.get(f"{initial} {primary_surname}", 0), 950)
+            aliases[f"{initial}.{primary_surname}"] = max(aliases.get(f"{initial}.{primary_surname}", 0), 950)
+            aliases[f"{given_token} {primary_surname}"] = max(aliases.get(f"{given_token} {primary_surname}", 0), 920)
+
+    return aliases
+
+
+@st.cache_data(show_spinner=False)
+def load_signature_catalog() -> list[dict[str, Any]]:
+    if not SIGNATURES_DIR.exists():
+        return []
+
+    catalog: list[dict[str, Any]] = []
+    for path in sorted(SIGNATURES_DIR.glob("*.png")):
+        display_name = strip_signature_suffix(path.stem)
+        normalized_name = normalize_signature_text(display_name)
+        tokens = normalized_name.split()
+        catalog.append(
+            {
+                "path": path,
+                "display_name": display_name,
+                "normalized_name": normalized_name,
+                "tokens": tokens,
+                "aliases": build_signature_aliases(tokens, normalized_name),
+            }
+        )
+    return catalog
+
+
+def find_signature_path(person_name: str) -> Path | None:
+    normalized_input = normalize_signature_text(person_name)
+    if not normalized_input:
+        return None
+
+    catalog = load_signature_catalog()
+    if not catalog:
+        return None
+
+    raw_input = unicodedata.normalize("NFKD", person_name)
+    ascii_input = "".join(char for char in raw_input if not unicodedata.combining(char))
+    dotted_match = re.search(r"\.\s*([A-Za-z]+)", ascii_input)
+    if dotted_match:
+        surname_after_dot = normalize_signature_text(dotted_match.group(1))
+        surname_matches = [
+            candidate["path"]
+            for candidate in catalog
+            if surname_after_dot and surname_after_dot in candidate["tokens"]
+        ]
+        unique_surname_matches = {path for path in surname_matches}
+        if len(unique_surname_matches) == 1:
+            return next(iter(unique_surname_matches))
+
+    best_score = -1
+    best_matches: list[Path] = []
+    collapsed_input = normalized_input.replace(" ", "")
+    input_tokens = normalized_input.split()
+
+    for candidate in catalog:
+        score = 0
+        aliases = candidate["aliases"]
+        if normalized_input in aliases:
+            score = max(score, aliases[normalized_input])
+        if collapsed_input in aliases:
+            score = max(score, aliases[collapsed_input])
+        if collapsed_input and collapsed_input == candidate["normalized_name"].replace(" ", ""):
+            score = max(score, 970)
+        if input_tokens and all(token in candidate["tokens"] for token in input_tokens):
+            score = max(score, 400 + (len(input_tokens) * 10))
+        if len(input_tokens) == 1 and input_tokens[0] in candidate["tokens"]:
+            score = max(score, 180)
+
+        if score > best_score:
+            best_score = score
+            best_matches = [candidate["path"]]
+        elif score > 0 and score == best_score:
+            best_matches.append(candidate["path"])
+
+    unique_matches = {path for path in best_matches}
+    if best_score <= 0 or len(unique_matches) != 1:
+        return None
+    return next(iter(unique_matches))
+
+
+def get_signature_display_name(person_name: str) -> str | None:
+    signature_path = find_signature_path(person_name)
+    if signature_path is None:
+        return None
+
+    for candidate in load_signature_catalog():
+        if candidate["path"] == signature_path:
+            return str(candidate["display_name"])
+    return strip_signature_suffix(signature_path.stem)
+
+
+def add_signature_image(
+    worksheet: Any,
+    coordinate: str,
+    image_path: Path,
+    width: int,
+    height: int,
+    rotate_vertical: bool = False,
+) -> None:
+    writable_coordinate = resolve_writable_coordinate(worksheet, coordinate)
+    worksheet[writable_coordinate] = None
+    image_buffer = prepare_signature_image_buffer(image_path, rotate_vertical=rotate_vertical)
+    image = XLImage(image_buffer)
+    fitted_width, fitted_height = fit_signature_dimensions(
+        worksheet,
+        writable_coordinate,
+        original_width=image.width,
+        original_height=image.height,
+        requested_width=width,
+        requested_height=height,
+    )
+    image.width = fitted_width
+    image.height = fitted_height
+    image.anchor = build_signature_anchor(worksheet, writable_coordinate, fitted_width, fitted_height)
+    worksheet.add_image(image)
+
+
+def prepare_signature_image_buffer(image_path: Path, rotate_vertical: bool = False) -> BytesIO:
+    image = PILImage.open(image_path).convert("RGBA")
+    alpha_bbox = image.getchannel("A").getbbox() if "A" in image.getbands() else None
+    if alpha_bbox is not None:
+        image = image.crop(alpha_bbox)
+    if rotate_vertical:
+        image = image.rotate(90, expand=True)
+    image_buffer = BytesIO()
+    image.save(image_buffer, format="PNG")
+    image_buffer.seek(0)
+    return image_buffer
+
+
+def get_merged_range_for_coordinate(worksheet: Any, coordinate: str) -> Any | None:
+    for merged_range in worksheet.merged_cells.ranges:
+        if coordinate in merged_range:
+            return merged_range
+    return None
+
+
+def column_width_to_pixels(width: float | None) -> float:
+    effective_width = 8.43 if width in (None, 0) else float(width)
+    return max((effective_width * 7) + 5, 24)
+
+
+def row_height_to_pixels(height: float | None) -> float:
+    effective_height = 15 if height in (None, 0) else float(height)
+    return max(effective_height * (96 / 72), 20)
+
+
+def get_signature_bounds(worksheet: Any, coordinate: str) -> tuple[float, float]:
+    merged_range = get_merged_range_for_coordinate(worksheet, coordinate)
+    if merged_range is None:
+        cell = worksheet[coordinate]
+        column_width = worksheet.column_dimensions[get_column_letter(cell.column)].width
+        row_height = worksheet.row_dimensions[cell.row].height
+        return column_width_to_pixels(column_width), row_height_to_pixels(row_height)
+
+    total_width = 0.0
+    for column in range(merged_range.min_col, merged_range.max_col + 1):
+        column_letter = get_column_letter(column)
+        total_width += column_width_to_pixels(worksheet.column_dimensions[column_letter].width)
+
+    total_height = 0.0
+    for row in range(merged_range.min_row, merged_range.max_row + 1):
+        total_height += row_height_to_pixels(worksheet.row_dimensions[row].height)
+
+    return total_width, total_height
+
+
+def get_signature_anchor_origin(worksheet: Any, coordinate: str) -> tuple[int, int]:
+    merged_range = get_merged_range_for_coordinate(worksheet, coordinate)
+    if merged_range is None:
+        cell = worksheet[coordinate]
+        return cell.column, cell.row
+    return merged_range.min_col, merged_range.min_row
+
+
+def fit_signature_dimensions(
+    worksheet: Any,
+    coordinate: str,
+    original_width: float,
+    original_height: float,
+    requested_width: int,
+    requested_height: int,
+) -> tuple[int, int]:
+    max_width, max_height = get_signature_bounds(worksheet, coordinate)
+    max_width = max(min(max_width - 8, requested_width), 24)
+    max_height = max(min(max_height - 4, requested_height), 16)
+
+    if original_width <= 0 or original_height <= 0:
+        return int(max_width), int(max_height)
+
+    scale = min(max_width / original_width, max_height / original_height)
+    scale = min(scale, 1.0)
+    return max(int(original_width * scale), 1), max(int(original_height * scale), 1)
+
+
+def build_signature_anchor(
+    worksheet: Any,
+    coordinate: str,
+    width: int,
+    height: int,
+) -> OneCellAnchor:
+    anchor_col, anchor_row = get_signature_anchor_origin(worksheet, coordinate)
+    bounds_width, bounds_height = get_signature_bounds(worksheet, coordinate)
+    offset_x = max(int((bounds_width - width) / 2), 0)
+    offset_y = max(int((bounds_height - height) / 2), 0)
+    marker = AnchorMarker(
+        col=anchor_col - 1,
+        colOff=pixels_to_EMU(offset_x),
+        row=anchor_row - 1,
+        rowOff=pixels_to_EMU(offset_y),
+    )
+    ext = XDRPositiveSize2D(pixels_to_EMU(width), pixels_to_EMU(height))
+    return OneCellAnchor(_from=marker, ext=ext)
+
+
+def write_signature_or_text_cell(
+    worksheet: Any,
+    coordinate: str,
+    value: str,
+    width: int,
+    height: int,
+) -> None:
+    signature_path = find_signature_path(value)
+    if signature_path is not None:
+        add_signature_image(worksheet, coordinate, signature_path, width=width, height=height)
+        return
+    write_template_cell(worksheet, coordinate, value)
+
+
+def write_signature_or_text_slot(
+    worksheet: Any,
+    row: int,
+    column: int,
+    value: str,
+    width: int,
+    height: int,
+) -> None:
+    coordinate = worksheet.cell(row=row, column=column).coordinate
+    signature_path = find_signature_path(value)
+    if signature_path is not None:
+        add_signature_image(
+            worksheet,
+            coordinate,
+            signature_path,
+            width=width,
+            height=height,
+            rotate_vertical=True,
+        )
+        return
+    write_slot_value(
+        worksheet,
+        row,
+        column,
+        value,
+        font_size=18,
+        rotate_like_hours=True,
+    )
+
+
+def write_signature_or_text_status(
+    worksheet: Any,
+    row: int,
+    start_col: int,
+    value: str,
+    width: int,
+    height: int,
+) -> None:
+    coordinate = worksheet.cell(row=row, column=start_col).coordinate
+    signature_path = find_signature_path(value)
+    if signature_path is not None:
+        add_signature_image(worksheet, coordinate, signature_path, width=width, height=height)
+        return
+    write_day_status(worksheet, row, start_col, value)
+
+
+def write_day_status(worksheet: Any, row: int, start_col: int, value: str) -> None:
+    cell = worksheet.cell(row=row, column=start_col)
+    cell.value = value
+    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
+    cell.font = Font(size=20)
+
+
+def write_slot_value(
+    worksheet: Any,
+    row: int,
+    column: int,
+    value: str,
+    font_size: int = 9,
+    rotate_like_hours: bool = False,
+) -> None:
+    cell = worksheet.cell(row=row, column=column)
+    cell.value = value
+    cell.alignment = Alignment(
+        horizontal="center",
+        vertical="center",
+        text_rotation=90 if rotate_like_hours else 0,
+        wrap_text=False,
+    )
+    cell.font = Font(size=font_size)
+
+
+def ensure_status_row_merges(worksheet: Any, payload: dict[str, Any]) -> None:
+    rows_to_merge = get_form_definition(payload["metadata"]["form_key"])["layout"]["status_rows_to_merge"]
+    for day in range(1, 32):
+        start_col = DAY_BLOCK_START_COLUMNS[day]
+        for row in rows_to_merge:
+            cell_range = f"{worksheet.cell(row=row, column=start_col).coordinate}:{worksheet.cell(row=row, column=start_col + 2).coordinate}"
+            if not is_range_already_merged(worksheet, cell_range):
+                worksheet.merge_cells(cell_range)
+
+
+def is_range_already_merged(worksheet: Any, cell_range: str) -> bool:
+    return any(str(merged_range) == cell_range for merged_range in worksheet.merged_cells.ranges)
+
+
+def calculate_corrected_temperature(
+    raw_value: str,
+    correction_bands: dict[str, Any],
+    correction_factors: dict[str, Any],
+    correction_operations: dict[str, str],
+) -> str:
+    cleaned = raw_value.strip().replace(",", ".")
+    if not cleaned:
+        return ""
+
+    try:
+        measured = float(cleaned)
+    except ValueError:
+        return ""
+
+    factor_key = None
+    band_items = list(correction_bands.items())
+    for index, (key, band) in enumerate(band_items):
+        min_value = float(band["min"])
+        max_value = float(band["max"])
+        is_last = index == len(band_items) - 1
+        if min_value <= measured <= max_value if is_last else min_value <= measured < max_value:
+            factor_key = key
+            break
+    if factor_key is None or factor_key not in correction_factors:
+        return f"{measured:.2f}"
+
+    factor = float(correction_factors[factor_key])
+    operation = correction_operations[factor_key]
+    corrected = measured + factor if operation == "+" else measured - factor
+    return f"{corrected:.2f}"
+
+
+def render_actions(payload: dict[str, Any]) -> None:
+    st.subheader("5. Guardado y exportacion")
+    allow_daily_edits = can_edit_daily_records()
+    allow_export = can_export_period()
+    errors = validate_payload(payload)
+    if errors:
+        st.warning("Hay datos pendientes antes de exportar.")
+        for error in errors[:8]:
+            st.write(f"- {error}")
+        if len(errors) > 8:
+            st.write(f"- ... y {len(errors) - 8} mas.")
+    else:
+        st.success("La captura esta completa para exportar la plantilla.")
+
+    save_col, export_col, reset_col = st.columns(3)
+    if save_col.button("Guardar borrador", use_container_width=True, disabled=not allow_daily_edits):
+        save_payload(payload)
+        st.success("Se guardo el borrador local en la carpeta data.")
+
+    if export_col.button("Preparar Excel", use_container_width=True, disabled=not allow_export):
+        if errors:
+            st.error("Completa los campos pendientes antes de exportar.")
+            return
+        excel_file = populate_template(payload)
+        form_definition = get_form_definition(payload["metadata"]["form_key"])
+        form_code = form_definition["source_file"].split()[0].replace(".xlsx", "")
+        filename = (
+            f"{form_code}_{payload['metadata']['equipment_code']}_{payload['metadata']['year']}_{payload['metadata']['month']:02d}.xlsx"
+        )
+        st.download_button(
+            "Descargar formato llenado",
+            data=excel_file,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+    if reset_col.button("Limpiar periodo", use_container_width=True, disabled=not allow_daily_edits):
+        current_period_key = get_period_key(payload)
+        clear_period_widget_state(current_period_key)
+        st.session_state.payload = build_default_payload(
+            equipment_code=str(payload["metadata"]["equipment_code"]),
+            form_key=str(payload["metadata"]["form_key"]),
+        )
+        st.session_state.payload["metadata"]["month"] = int(payload["metadata"]["month"])
+        st.session_state.payload["metadata"]["year"] = int(payload["metadata"]["year"])
+        st.session_state.period_key = get_period_key(st.session_state.payload)
+        st.rerun()
+
+    if not allow_export:
+        st.caption("Solo responsable, calidad o admin pueden cerrar y exportar el formato.")
+
+
+def main() -> None:
+    form_keys = list(FORM_DEFINITIONS.keys())
+
+    st.set_page_config(
+        page_title="Formularios Digitales",
+        layout="wide",
+    )
+    configure_users_backend()
+    initialize_auth_state()
+
+    if not st.session_state["autenticado"]:
+        render_auth_screen()
+        st.stop()
+
+    for form_key in form_keys:
+        source_path, _ = get_template_paths(form_key)
+        if not source_path.exists():
+            st.error(f"No se encontro la plantilla {source_path.name}.")
+            st.stop()
+
+    if "payload" not in st.session_state:
+        st.session_state.payload = load_saved_payload(
+            form_key=DEFAULT_FORM_KEY,
+            equipment_code=FORM_DEFINITIONS[DEFAULT_FORM_KEY]["default_equipment"],
+        )
+
+    payload = st.session_state.payload
+    previous_period_key = st.session_state.get("period_key", get_period_key(payload))
+    equipment_configs = load_equipment_configs(payload["metadata"]["form_key"])
+    equipment_codes = list(equipment_configs.keys())
+
+    st.title("Digitalizacion de formatos")
+    st.caption(
+        f"Captura guiada y exportacion automatica para {payload['metadata']['form_label']} en {payload['metadata']['equipment_code']}."
+    )
+
+    selected_form_key, selected_equipment = render_sidebar(payload, form_keys, equipment_codes)
+    if selected_form_key != payload["metadata"]["form_key"]:
+        target_equipment = FORM_DEFINITIONS[selected_form_key]["default_equipment"]
+        st.session_state.payload = load_saved_payload(
+            form_key=selected_form_key,
+            equipment_code=target_equipment,
+            year=int(payload["metadata"]["year"]),
+            month=int(payload["metadata"]["month"]),
+        )
+        st.session_state.period_key = get_period_key(st.session_state.payload)
+        st.rerun()
+
+    if selected_equipment != payload["metadata"]["equipment_code"]:
+        target_period_key = (
+            f"{payload['metadata']['form_key']}_{selected_equipment}_{int(payload['metadata']['year'])}_{int(payload['metadata']['month']):02d}"
+        )
+        clear_period_widget_state(target_period_key)
+        st.session_state.payload = load_saved_payload(
+            form_key=str(payload["metadata"]["form_key"]),
+            equipment_code=selected_equipment,
+            year=int(payload["metadata"]["year"]),
+            month=int(payload["metadata"]["month"]),
+        )
+        st.session_state.period_key = get_period_key(st.session_state.payload)
+        st.rerun()
+
+    payload = st.session_state.payload
+    render_configuration(payload)
+
+    current_period_key = get_period_key(payload)
+    if current_period_key != previous_period_key:
+        clear_period_widget_state(current_period_key)
+        st.session_state.payload = load_saved_payload(
+            form_key=str(payload["metadata"]["form_key"]),
+            equipment_code=str(payload["metadata"]["equipment_code"]),
+            year=int(payload["metadata"]["year"]),
+            month=int(payload["metadata"]["month"]),
+        )
+        st.session_state.period_key = current_period_key
+        st.rerun()
+
+    st.session_state.period_key = current_period_key
+    payload = st.session_state.payload
+
+    render_non_working_days(payload)
+    render_daily_capture(payload)
+    render_monthly_closure(payload)
+    render_actions(payload)
+
+
+if __name__ == "__main__":
+    main()
