@@ -38,6 +38,17 @@ from supabase_users import (
     supabase_users_enabled,
     actualizar_rol_usuario,
 )
+from supabase_storage import (
+    configure_supabase_storage,
+    download_signature_bytes,
+    get_storage_backend_label,
+    list_periods as list_remote_periods,
+    list_signature_assets as list_remote_signature_assets,
+    load_period_payload as load_remote_period_payload,
+    save_period_payload as save_remote_period_payload,
+    signatures_storage_enabled,
+    supabase_storage_enabled,
+)
 
 
 load_dotenv()
@@ -256,6 +267,17 @@ def configure_users_backend() -> None:
             crear_admin_inicial(admin_email, admin_password)
         except Exception:
             pass
+
+
+def configure_storage_backend() -> None:
+    configure_supabase_storage(
+        url=str(get_config_value("supabase_url", "SUPABASE_URL", "")),
+        key=str(get_config_value("supabase_key", "SUPABASE_KEY", "")),
+        enabled=as_bool(get_config_value("use_supabase_storage", "USE_SUPABASE_STORAGE", True)),
+        table_name=str(get_config_value("supabase_storage_table", "SUPABASE_STORAGE_TABLE", "formularios_periodos")),
+        signatures_bucket=str(get_config_value("supabase_signatures_bucket", "SUPABASE_SIGNATURES_BUCKET", "firmas-digitales")),
+        signatures_prefix=str(get_config_value("supabase_signatures_prefix", "SUPABASE_SIGNATURES_PREFIX", "")),
+    )
 
 
 def normalize_user_role(rol: Any, es_admin: bool) -> str:
@@ -843,6 +865,12 @@ def get_period_file(payload: dict[str, Any]) -> Path:
 
 
 def list_saved_periods() -> list[dict[str, Any]]:
+    if supabase_storage_enabled():
+        try:
+            return list_remote_periods()
+        except Exception:
+            pass
+
     ensure_data_dir()
     periods: list[dict[str, Any]] = []
     for file in sorted(DATA_DIR.glob("*.json")):
@@ -892,6 +920,14 @@ def load_saved_payload(
     if month is None:
         month = int(default_payload["metadata"]["month"])
 
+    if supabase_storage_enabled():
+        try:
+            remote_payload = load_remote_period_payload(form_key, equipment_code, year, month)
+            if remote_payload:
+                return merge_payload_with_saved_data(remote_payload, equipment_code=equipment_code, form_key=form_key)
+        except Exception:
+            pass
+
     data_file = get_period_file_from_values(form_key, equipment_code, year, month)
     if not data_file.exists():
         default_payload["metadata"]["year"] = year
@@ -904,18 +940,27 @@ def load_saved_payload(
     return merge_payload_with_saved_data(data, equipment_code=equipment_code, form_key=form_key)
 
 
-def save_payload(payload: dict[str, Any]) -> None:
+def save_payload(payload: dict[str, Any]) -> str:
+    if supabase_storage_enabled():
+        try:
+            save_remote_period_payload(
+                payload,
+                updated_by=str(st.session_state.get("usuario_email", "")).strip(),
+            )
+            return "Supabase"
+        except Exception:
+            pass
+
     data_file = get_period_file(payload)
     with data_file.open("w", encoding="utf-8") as file:
         json.dump(payload, file, ensure_ascii=False, indent=2)
+    return "Local JSON"
 
 
 def get_supabase_status() -> tuple[bool, str]:
-    has_url = bool(os.getenv("SUPABASE_URL"))
-    has_key = bool(os.getenv("SUPABASE_KEY"))
-    if has_url and has_key:
-        return True, "Configurado"
-    return False, "Pendiente"
+    if supabase_storage_enabled():
+        return True, "Supabase"
+    return False, "Local JSON"
 
 
 def get_row_group(payload: dict[str, Any], day: int) -> dict[str, int]:
@@ -1010,11 +1055,8 @@ def render_sidebar(
         key="sidebar_equipment",
     )
     st.sidebar.caption(payload["metadata"]["form_label"])
-    st.sidebar.write(f"Supabase: `{supabase_status}`")
-    st.sidebar.write(
-        "Modo actual: "
-        + ("listo para integrar base remota" if supabase_enabled else "persistencia local en JSON")
-    )
+    st.sidebar.write(f"Persistencia: `{supabase_status}`")
+    st.sidebar.write(f"Backend de guardado: `{get_storage_backend_label()}`")
     st.sidebar.write(f"Plantilla detectada: `{get_form_definition(payload['metadata']['form_key'])['source_file']}`")
     st.sidebar.write(
         f"Mes de trabajo: `{MONTHS[payload['metadata']['month']]} {payload['metadata']['year']}`"
@@ -1711,27 +1753,54 @@ def build_signature_aliases(tokens: list[str], normalized_name: str) -> dict[str
 
 @st.cache_data(show_spinner=False)
 def load_signature_catalog() -> list[dict[str, Any]]:
-    if not SIGNATURES_DIR.exists():
-        return []
-
     catalog: list[dict[str, Any]] = []
-    for path in sorted(SIGNATURES_DIR.glob("*.png")):
-        display_name = strip_signature_suffix(path.stem)
+    remote_assets: list[dict[str, str]] = []
+    if signatures_storage_enabled():
+        try:
+            remote_assets = sorted(list_remote_signature_assets(), key=lambda asset: asset["name"].lower())
+        except Exception:
+            remote_assets = []
+
+    for asset in remote_assets:
+        asset_name = asset["name"]
+        display_name = strip_signature_suffix(Path(asset_name).stem)
         normalized_name = normalize_signature_text(display_name)
         tokens = normalized_name.split()
         catalog.append(
             {
-                "path": path,
+                "asset_name": asset_name,
+                "storage_path": asset["path"],
+                "local_path": None,
                 "display_name": display_name,
                 "normalized_name": normalized_name,
                 "tokens": tokens,
                 "aliases": build_signature_aliases(tokens, normalized_name),
             }
         )
+
+    if SIGNATURES_DIR.exists():
+        existing_names = {candidate["asset_name"].lower() for candidate in catalog}
+        for path in sorted(SIGNATURES_DIR.glob("*.png")):
+            if path.name.lower() in existing_names:
+                continue
+            display_name = strip_signature_suffix(path.stem)
+            normalized_name = normalize_signature_text(display_name)
+            tokens = normalized_name.split()
+            catalog.append(
+                {
+                    "asset_name": path.name,
+                    "storage_path": None,
+                    "local_path": path,
+                    "display_name": display_name,
+                    "normalized_name": normalized_name,
+                    "tokens": tokens,
+                    "aliases": build_signature_aliases(tokens, normalized_name),
+                }
+            )
     return catalog
 
 
-def find_signature_path(person_name: str) -> Path | None:
+def find_signature_candidate(person_name: str) -> dict[str, Any] | None:
     normalized_input = normalize_signature_text(person_name)
     if not normalized_input:
         return None
@@ -1746,16 +1815,16 @@ def find_signature_path(person_name: str) -> Path | None:
     if dotted_match:
         surname_after_dot = normalize_signature_text(dotted_match.group(1))
         surname_matches = [
-            candidate["path"]
+            candidate
             for candidate in catalog
             if surname_after_dot and surname_after_dot in candidate["tokens"]
         ]
-        unique_surname_matches = {path for path in surname_matches}
+        unique_surname_matches = {candidate["asset_name"].lower(): candidate for candidate in surname_matches}
         if len(unique_surname_matches) == 1:
-            return next(iter(unique_surname_matches))
+            return next(iter(unique_surname_matches.values()))
 
     best_score = -1
-    best_matches: list[Path] = []
+    best_matches: list[dict[str, Any]] = []
     collapsed_input = normalized_input.replace(" ", "")
     input_tokens = normalized_input.split()
 
@@ -1775,38 +1844,51 @@ def find_signature_path(person_name: str) -> Path | None:
 
         if score > best_score:
             best_score = score
-            best_matches = [candidate["path"]]
+            best_matches = [candidate]
         elif score > 0 and score == best_score:
-            best_matches.append(candidate["path"])
+            best_matches.append(candidate)
 
-    unique_matches = {path for path in best_matches}
+    unique_matches = {candidate["asset_name"].lower(): candidate for candidate in best_matches}
     if best_score <= 0 or len(unique_matches) != 1:
         return None
-    return next(iter(unique_matches))
+    return next(iter(unique_matches.values()))
 
 
 def get_signature_display_name(person_name: str) -> str | None:
-    signature_path = find_signature_path(person_name)
-    if signature_path is None:
+    signature_candidate = find_signature_candidate(person_name)
+    if signature_candidate is None:
         return None
+    return str(signature_candidate["display_name"])
 
-    for candidate in load_signature_catalog():
-        if candidate["path"] == signature_path:
-            return str(candidate["display_name"])
-    return strip_signature_suffix(signature_path.stem)
+
+def get_signature_image_source(signature_candidate: dict[str, Any]) -> BytesIO | Path | None:
+    storage_path = signature_candidate.get("storage_path")
+    if storage_path:
+        try:
+            signature_bytes = download_signature_bytes(str(storage_path))
+            image_buffer = BytesIO(signature_bytes)
+            image_buffer.seek(0)
+            return image_buffer
+        except Exception:
+            pass
+
+    local_path = signature_candidate.get("local_path")
+    if isinstance(local_path, Path) and local_path.exists():
+        return local_path
+    return None
 
 
 def add_signature_image(
     worksheet: Any,
     coordinate: str,
-    image_path: Path,
+    image_source: BytesIO | Path,
     width: int,
     height: int,
     rotate_vertical: bool = False,
 ) -> None:
     writable_coordinate = resolve_writable_coordinate(worksheet, coordinate)
     worksheet[writable_coordinate] = None
-    image_buffer = prepare_signature_image_buffer(image_path, rotate_vertical=rotate_vertical)
+    image_buffer = prepare_signature_image_buffer(image_source, rotate_vertical=rotate_vertical)
     image = XLImage(image_buffer)
     fitted_width, fitted_height = fit_signature_dimensions(
         worksheet,
@@ -1822,8 +1904,12 @@ def add_signature_image(
     worksheet.add_image(image)
 
 
-def prepare_signature_image_buffer(image_path: Path, rotate_vertical: bool = False) -> BytesIO:
-    image = PILImage.open(image_path).convert("RGBA")
+def prepare_signature_image_buffer(image_source: BytesIO | Path, rotate_vertical: bool = False) -> BytesIO:
+    if isinstance(image_source, Path):
+        image = PILImage.open(image_source).convert("RGBA")
+    else:
+        image_source.seek(0)
+        image = PILImage.open(image_source).convert("RGBA")
     alpha_bbox = image.getchannel("A").getbbox() if "A" in image.getbands() else None
     if alpha_bbox is not None:
         image = image.crop(alpha_bbox)
@@ -1927,10 +2013,12 @@ def write_signature_or_text_cell(
     width: int,
     height: int,
 ) -> None:
-    signature_path = find_signature_path(value)
-    if signature_path is not None:
-        add_signature_image(worksheet, coordinate, signature_path, width=width, height=height)
-        return
+    signature_candidate = find_signature_candidate(value)
+    if signature_candidate is not None:
+        image_source = get_signature_image_source(signature_candidate)
+        if image_source is not None:
+            add_signature_image(worksheet, coordinate, image_source, width=width, height=height)
+            return
     write_template_cell(worksheet, coordinate, value)
 
 
@@ -1943,17 +2031,19 @@ def write_signature_or_text_slot(
     height: int,
 ) -> None:
     coordinate = worksheet.cell(row=row, column=column).coordinate
-    signature_path = find_signature_path(value)
-    if signature_path is not None:
-        add_signature_image(
-            worksheet,
-            coordinate,
-            signature_path,
-            width=width,
-            height=height,
-            rotate_vertical=True,
-        )
-        return
+    signature_candidate = find_signature_candidate(value)
+    if signature_candidate is not None:
+        image_source = get_signature_image_source(signature_candidate)
+        if image_source is not None:
+            add_signature_image(
+                worksheet,
+                coordinate,
+                image_source,
+                width=width,
+                height=height,
+                rotate_vertical=True,
+            )
+            return
     write_slot_value(
         worksheet,
         row,
@@ -1973,10 +2063,12 @@ def write_signature_or_text_status(
     height: int,
 ) -> None:
     coordinate = worksheet.cell(row=row, column=start_col).coordinate
-    signature_path = find_signature_path(value)
-    if signature_path is not None:
-        add_signature_image(worksheet, coordinate, signature_path, width=width, height=height)
-        return
+    signature_candidate = find_signature_candidate(value)
+    if signature_candidate is not None:
+        image_source = get_signature_image_source(signature_candidate)
+        if image_source is not None:
+            add_signature_image(worksheet, coordinate, image_source, width=width, height=height)
+            return
     write_day_status(worksheet, row, start_col, value)
 
 
@@ -2057,6 +2149,7 @@ def render_actions(payload: dict[str, Any]) -> None:
     st.subheader("5. Guardado y exportacion")
     allow_daily_edits = can_edit_daily_records()
     allow_export = can_export_period()
+    storage_label = get_storage_backend_label()
     errors = validate_payload(payload)
     if errors:
         st.warning("Hay datos pendientes antes de exportar.")
@@ -2069,13 +2162,25 @@ def render_actions(payload: dict[str, Any]) -> None:
 
     save_col, export_col, reset_col = st.columns(3)
     if save_col.button("Guardar borrador", use_container_width=True, disabled=not allow_daily_edits):
-        save_payload(payload)
-        st.success("Se guardo el borrador local en la carpeta data.")
+        try:
+            saved_backend = save_payload(payload)
+            if saved_backend == storage_label:
+                st.success(f"Se guardo el borrador en {saved_backend}.")
+            else:
+                st.warning(
+                    f"El guardado remoto no estuvo disponible. Se guardo el borrador en {saved_backend} como respaldo."
+                )
+        except Exception as exc:
+            st.error(f"No se pudo guardar el borrador en {storage_label}: {exc}")
 
     if export_col.button("Preparar Excel", use_container_width=True, disabled=not allow_export):
         if errors:
             st.error("Completa los campos pendientes antes de exportar.")
             return
+        try:
+            save_payload(payload)
+        except Exception:
+            pass
         excel_file = populate_template(payload)
         form_definition = get_form_definition(payload["metadata"]["form_key"])
         form_code = form_definition["source_file"].split()[0].replace(".xlsx", "")
@@ -2114,6 +2219,7 @@ def main() -> None:
         layout="wide",
     )
     configure_users_backend()
+    configure_storage_backend()
     initialize_auth_state()
 
     if not st.session_state["autenticado"]:
