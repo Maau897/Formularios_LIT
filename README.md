@@ -44,6 +44,8 @@ SUPABASE_USERS_TABLE=usuarios_app
 SUPABASE_STORAGE_TABLE=formularios_periodos
 SUPABASE_SIGNATURES_BUCKET=firmas-digitales
 SUPABASE_SIGNATURES_PREFIX=
+SUPABASE_TEMPLATES_BUCKET=formularios-templates
+SUPABASE_TEMPLATES_PREFIX=
 ADMIN_EMAIL=tu-admin@ejemplo.com
 ADMIN_PASSWORD=tu-password
 ```
@@ -53,6 +55,15 @@ ADMIN_PASSWORD=tu-password
 La app trabaja sobre copias de las plantillas y genera un archivo nuevo con los datos capturados, sin modificar la plantilla base.
 
 Antes de usar la persistencia remota, ejecutar el esquema de [supabase_schema.sql](C:/Users/mauri/OneDrive/Desktop/Formularios/supabase_schema.sql) en el proyecto de Supabase.
+
+## Plantillas F-LIT en despliegue
+
+Para evitar publicar las plantillas oficiales en el repo, la app puede descargarlas desde un bucket privado de Supabase Storage.
+
+- Crear o usar un bucket privado, por ejemplo `formularios-templates`.
+- Subir los archivos `.xlsx` con el mismo nombre definido en `FORM_DEFINITIONS`.
+- Configurar `SUPABASE_TEMPLATES_BUCKET` y, si aplica, `SUPABASE_TEMPLATES_PREFIX`.
+- La app intenta leer primero desde Supabase Storage y usa los archivos locales solo como fallback para desarrollo.
 
 ## Firmas digitales en despliegue
 

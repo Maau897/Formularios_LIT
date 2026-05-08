@@ -21,6 +21,8 @@ class SupabaseStorageConfig:
     table_name: str = "formularios_periodos"
     signatures_bucket: str = "firmas-digitales"
     signatures_prefix: str = ""
+    templates_bucket: str = ""
+    templates_prefix: str = ""
 
 
 _CONFIG = SupabaseStorageConfig(url="", key="", enabled=False)
@@ -35,6 +37,8 @@ def configure_supabase_storage(
     table_name: str = "formularios_periodos",
     signatures_bucket: str = "firmas-digitales",
     signatures_prefix: str = "",
+    templates_bucket: str = "",
+    templates_prefix: str = "",
 ) -> None:
     global _CONFIG, _CLIENT
     _CONFIG = SupabaseStorageConfig(
@@ -44,6 +48,8 @@ def configure_supabase_storage(
         table_name=table_name,
         signatures_bucket=(signatures_bucket or "").strip(),
         signatures_prefix=(signatures_prefix or "").strip().strip("/"),
+        templates_bucket=(templates_bucket or "").strip(),
+        templates_prefix=(templates_prefix or "").strip().strip("/"),
     )
     _CLIENT = None
 
@@ -60,11 +66,23 @@ def signatures_storage_enabled() -> bool:
     return bool(supabase_storage_enabled() and _CONFIG.signatures_bucket)
 
 
+def templates_storage_enabled() -> bool:
+    return bool(supabase_storage_enabled() and _CONFIG.templates_bucket)
+
+
 def get_signatures_storage_cache_key() -> tuple[bool, str, str]:
     return (
         signatures_storage_enabled(),
         _CONFIG.signatures_bucket,
         _CONFIG.signatures_prefix,
+    )
+
+
+def get_templates_storage_cache_key() -> tuple[bool, str, str]:
+    return (
+        templates_storage_enabled(),
+        _CONFIG.templates_bucket,
+        _CONFIG.templates_prefix,
     )
 
 
@@ -85,6 +103,20 @@ def _storage_bucket():
     if not signatures_storage_enabled():
         raise RuntimeError("Supabase Storage de firmas no esta configurado.")
     return _client().storage.from_(_CONFIG.signatures_bucket)
+
+
+def _templates_storage_bucket():
+    if not templates_storage_enabled():
+        raise RuntimeError("Supabase Storage de plantillas no esta configurado.")
+    return _client().storage.from_(_CONFIG.templates_bucket)
+
+
+def _build_storage_asset_path(prefix: str, name: str) -> str:
+    normalized_name = name.strip().lstrip("/")
+    normalized_prefix = prefix.strip().strip("/")
+    if not normalized_name:
+        raise ValueError("El nombre del archivo es obligatorio.")
+    return f"{normalized_prefix}/{normalized_name}" if normalized_prefix else normalized_name
 
 
 def save_period_payload(payload: dict[str, Any], updated_by: str = "") -> None:
@@ -170,7 +202,7 @@ def list_signature_assets() -> list[dict[str, str]]:
         name = str(entry.get("name", "")).strip()
         if not name or not name.lower().endswith(".png"):
             continue
-        asset_path = f"{prefix}/{name}" if prefix else name
+        asset_path = _build_storage_asset_path(prefix, name)
         assets.append({"name": name, "path": asset_path})
     return assets
 
@@ -179,3 +211,8 @@ def download_signature_bytes(asset_path: str) -> bytes:
     if not asset_path.strip():
         raise ValueError("La ruta del archivo de firma es obligatoria.")
     return _storage_bucket().download(asset_path.strip())
+
+
+def download_template_bytes(file_name: str) -> bytes:
+    asset_path = _build_storage_asset_path(_CONFIG.templates_prefix, file_name)
+    return _templates_storage_bucket().download(asset_path)

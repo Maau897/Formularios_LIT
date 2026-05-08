@@ -40,8 +40,10 @@ from supabase_users import (
 )
 from supabase_storage import (
     configure_supabase_storage,
+    download_template_bytes,
     download_signature_bytes,
     get_signatures_storage_cache_key,
+    get_templates_storage_cache_key,
     get_storage_backend_label,
     list_periods as list_remote_periods,
     list_signature_assets as list_remote_signature_assets,
@@ -49,6 +51,7 @@ from supabase_storage import (
     save_period_payload as save_remote_period_payload,
     signatures_storage_enabled,
     supabase_storage_enabled,
+    templates_storage_enabled,
 )
 
 
@@ -278,6 +281,8 @@ def configure_storage_backend() -> None:
         table_name=str(get_config_value("supabase_storage_table", "SUPABASE_STORAGE_TABLE", "formularios_periodos")),
         signatures_bucket=str(get_config_value("supabase_signatures_bucket", "SUPABASE_SIGNATURES_BUCKET", "firmas-digitales")),
         signatures_prefix=str(get_config_value("supabase_signatures_prefix", "SUPABASE_SIGNATURES_PREFIX", "")),
+        templates_bucket=str(get_config_value("supabase_templates_bucket", "SUPABASE_TEMPLATES_BUCKET", "")),
+        templates_prefix=str(get_config_value("supabase_templates_prefix", "SUPABASE_TEMPLATES_PREFIX", "")),
     )
 
 
@@ -496,9 +501,7 @@ def get_template_paths(form_key: str) -> tuple[Path, Path]:
     return BASE_DIR / definition["source_file"], BASE_DIR / definition["working_file"]
 
 
-@st.cache_data(show_spinner=False)
-def get_template_bytes(form_key: str) -> bytes:
-    source_path, working_path = get_template_paths(form_key)
+def _read_local_template_bytes(source_path: Path, working_path: Path) -> bytes:
     try:
         return source_path.read_bytes()
     except PermissionError:
@@ -509,6 +512,41 @@ def get_template_bytes(form_key: str) -> bytes:
                 workbook = load_workbook(source_path)
                 workbook.save(working_path)
         return working_path.read_bytes()
+    except FileNotFoundError:
+        if working_path.exists():
+            return working_path.read_bytes()
+        raise
+
+
+@st.cache_data(show_spinner=False, ttl=300)
+def _get_template_bytes_cached(
+    form_key: str,
+    source_file_name: str,
+    _templates_storage_cache_key: tuple[bool, str, str],
+) -> bytes:
+    source_path, working_path = get_template_paths(form_key)
+    if templates_storage_enabled():
+        try:
+            return download_template_bytes(source_file_name)
+        except Exception:
+            pass
+    return _read_local_template_bytes(source_path, working_path)
+
+
+def get_template_bytes(form_key: str) -> bytes:
+    definition = get_form_definition(form_key)
+    return _get_template_bytes_cached(
+        form_key,
+        str(definition["source_file"]),
+        get_templates_storage_cache_key(),
+    )
+
+
+def template_source_available(form_key: str) -> bool:
+    source_path, working_path = get_template_paths(form_key)
+    if templates_storage_enabled():
+        return True
+    return source_path.exists() or working_path.exists()
 
 
 def extract_inline_corrections(
@@ -2244,9 +2282,9 @@ def main() -> None:
         st.stop()
 
     for form_key in form_keys:
-        source_path, _ = get_template_paths(form_key)
-        if not source_path.exists():
-            st.error(f"No se encontro la plantilla {source_path.name}.")
+        definition = get_form_definition(form_key)
+        if not template_source_available(form_key):
+            st.error(f"No se encontro la plantilla {definition['source_file']}.")
             st.stop()
 
     if "payload" not in st.session_state:
