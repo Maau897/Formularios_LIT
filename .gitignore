@@ -32,6 +32,7 @@ exports/
 output/
 generated/
 *_llenado.xlsx
+F-LIT-*.xlsx
 F-LIT-*_*_20*.xlsx
 template_*.xlsx
 
