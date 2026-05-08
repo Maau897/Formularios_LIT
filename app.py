@@ -1114,23 +1114,26 @@ def render_sidebar(
         if period["equipment_code"] == selected_equipment and period["form_key"] == selected_form_key
     ]
     if saved_periods:
-        labels = [
-            f"{MONTHS[period['month']]} {period['year']}"
+        labels = [f"{MONTHS[period['month']]} {period['year']}" for period in saved_periods]
+        saved_periods_by_label = {
+            f"{MONTHS[period['month']]} {period['year']}": period
             for period in saved_periods
-        ]
+        }
         current_label = f"{MONTHS[payload['metadata']['month']]} {payload['metadata']['year']}"
-        default_index = labels.index(current_label) if current_label in labels else 0
+        period_options = labels if current_label in saved_periods_by_label else [current_label, *labels]
+        default_index = period_options.index(current_label)
         selected_period_label = st.sidebar.selectbox(
             "Abrir periodo guardado",
-            options=labels,
+            options=period_options,
             index=default_index,
-            key=f"saved_periods_{selected_equipment}",
+            key=f"saved_periods_{selected_form_key}_{selected_equipment}_{current_label}",
         )
-        selected_period = saved_periods[labels.index(selected_period_label)]
-        if (
+        selected_period = saved_periods_by_label.get(selected_period_label)
+        if selected_period and (
             selected_period["month"] != int(payload["metadata"]["month"])
             or selected_period["year"] != int(payload["metadata"]["year"])
             or selected_equipment != payload["metadata"]["equipment_code"]
+            or selected_form_key != payload["metadata"]["form_key"]
         ):
             target_period_key = f"{selected_equipment}_{selected_period['year']}_{selected_period['month']:02d}"
             target_period_key = f"{selected_form_key}_{target_period_key}"
