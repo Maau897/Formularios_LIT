@@ -41,6 +41,7 @@ from supabase_users import (
 from supabase_storage import (
     configure_supabase_storage,
     download_signature_bytes,
+    get_signatures_storage_cache_key,
     get_storage_backend_label,
     list_periods as list_remote_periods,
     list_signature_assets as list_remote_signature_assets,
@@ -1751,8 +1752,17 @@ def build_signature_aliases(tokens: list[str], normalized_name: str) -> dict[str
     return aliases
 
 
-@st.cache_data(show_spinner=False)
-def load_signature_catalog() -> list[dict[str, Any]]:
+def get_local_signature_cache_key() -> tuple[str, ...]:
+    if not SIGNATURES_DIR.exists():
+        return ()
+    return tuple(sorted(path.name.lower() for path in SIGNATURES_DIR.glob("*.png")))
+
+
+@st.cache_data(show_spinner=False, ttl=300)
+def _load_signature_catalog_cached(
+    _storage_cache_key: tuple[bool, str, str],
+    _local_cache_key: tuple[str, ...],
+) -> list[dict[str, Any]]:
     catalog: list[dict[str, Any]] = []
     remote_assets: list[dict[str, str]] = []
     if signatures_storage_enabled():
@@ -1798,6 +1808,13 @@ def load_signature_catalog() -> list[dict[str, Any]]:
                 }
             )
     return catalog
+
+
+def load_signature_catalog() -> list[dict[str, Any]]:
+    return _load_signature_catalog_cached(
+        get_signatures_storage_cache_key(),
+        get_local_signature_cache_key(),
+    )
 
 
 def find_signature_candidate(person_name: str) -> dict[str, Any] | None:

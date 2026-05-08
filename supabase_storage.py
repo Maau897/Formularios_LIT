@@ -60,6 +60,14 @@ def signatures_storage_enabled() -> bool:
     return bool(supabase_storage_enabled() and _CONFIG.signatures_bucket)
 
 
+def get_signatures_storage_cache_key() -> tuple[bool, str, str]:
+    return (
+        signatures_storage_enabled(),
+        _CONFIG.signatures_bucket,
+        _CONFIG.signatures_prefix,
+    )
+
+
 def _client() -> Client:
     global _CLIENT
     if not supabase_storage_enabled():
