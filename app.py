@@ -45,7 +45,6 @@ from supabase_storage import (
     get_signatures_storage_cache_key,
     get_templates_storage_cache_key,
     get_storage_backend_label,
-    list_periods as list_remote_periods,
     list_signature_assets as list_remote_signature_assets,
     load_period_payload as load_remote_period_payload,
     save_period_payload as save_remote_period_payload,
@@ -903,42 +902,6 @@ def get_period_file(payload: dict[str, Any]) -> Path:
     )
 
 
-def list_saved_periods() -> list[dict[str, Any]]:
-    if supabase_storage_enabled():
-        try:
-            return list_remote_periods()
-        except Exception:
-            pass
-
-    ensure_data_dir()
-    periods: list[dict[str, Any]] = []
-    for file in sorted(DATA_DIR.glob("*.json")):
-        try:
-            data = json.loads(file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-
-        metadata = data.get("metadata", {})
-        form_key = metadata.get("form_key")
-        equipment_code = metadata.get("equipment_code")
-        month = metadata.get("month")
-        year = metadata.get("year")
-        if not form_key or not equipment_code or not month or not year:
-            continue
-
-        periods.append(
-            {
-                "form_key": str(form_key),
-                "equipment_code": str(equipment_code),
-                "month": int(month),
-                "year": int(year),
-                "file_name": file.name,
-            }
-        )
-
-    return periods
-
-
 def clear_period_widget_state(period_key: str) -> None:
     keys_to_delete = [
         key for key in st.session_state.keys() if period_key in str(key)
@@ -1106,49 +1069,6 @@ def render_sidebar(
     st.sidebar.write(f"Modelo: `{payload['metadata']['model']}`")
     st.sidebar.write(f"Serie: `{payload['metadata']['serial_number']}`")
     st.sidebar.write(f"Inventario / código: `{payload['metadata']['inventory_code']}`")
-    st.sidebar.divider()
-    st.sidebar.caption("Periodos guardados")
-    saved_periods = [
-        period
-        for period in list_saved_periods()
-        if period["equipment_code"] == selected_equipment and period["form_key"] == selected_form_key
-    ]
-    if saved_periods:
-        labels = [f"{MONTHS[period['month']]} {period['year']}" for period in saved_periods]
-        saved_periods_by_label = {
-            f"{MONTHS[period['month']]} {period['year']}": period
-            for period in saved_periods
-        }
-        current_label = f"{MONTHS[payload['metadata']['month']]} {payload['metadata']['year']}"
-        period_options = labels if current_label in saved_periods_by_label else [current_label, *labels]
-        default_index = period_options.index(current_label)
-        selected_period_label = st.sidebar.selectbox(
-            "Abrir periodo guardado",
-            options=period_options,
-            index=default_index,
-            key=f"saved_periods_{selected_form_key}_{selected_equipment}_{current_label}",
-        )
-        selected_period = saved_periods_by_label.get(selected_period_label)
-        if selected_period and (
-            selected_period["month"] != int(payload["metadata"]["month"])
-            or selected_period["year"] != int(payload["metadata"]["year"])
-            or selected_equipment != payload["metadata"]["equipment_code"]
-            or selected_form_key != payload["metadata"]["form_key"]
-        ):
-            target_period_key = f"{selected_equipment}_{selected_period['year']}_{selected_period['month']:02d}"
-            target_period_key = f"{selected_form_key}_{target_period_key}"
-            clear_period_widget_state(target_period_key)
-            st.session_state.payload = load_saved_payload(
-                form_key=selected_form_key,
-                equipment_code=selected_equipment,
-                year=selected_period["year"],
-                month=selected_period["month"],
-            )
-            st.session_state.period_key = get_period_key(st.session_state.payload)
-            st.rerun()
-    else:
-        st.sidebar.write("No hay periodos guardados para este congelador.")
-
     render_user_admin_sidebar()
     return selected_form_key, selected_equipment
 
