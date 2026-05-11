@@ -1245,27 +1245,53 @@ def render_configuration(payload: dict[str, Any]) -> None:
     if definition["supports_corrections"] and correction_factors:
         st.caption("Factores de correccion editables por rango para este equipo.")
         factor_labels = list(correction_factors.keys())
-        factor_cols = st.columns(len(factor_labels))
-        for factor_col, factor_key in zip(factor_cols, factor_labels):
-            operation_col, value_col = factor_col.columns([1, 2])
-            label = correction_bands.get(factor_key, {}).get("label", factor_key.replace("_", " ").title())
-            operation_label = f"Operacion temperatura {label}" if is_incubator_form else f"Operacion {label}"
-            factor_value_label = f"Temperatura {label}" if is_incubator_form else label
-            correction_operations[factor_key] = operation_col.selectbox(
-                operation_label,
-                options=["+", "-"],
-                index=0 if correction_operations[factor_key] == "+" else 1,
-                key=f"operation_{period_key}_{factor_key}",
-                disabled=not allow_sensitive_edits,
-            )
-            correction_factors[factor_key] = value_col.number_input(
-                factor_value_label,
-                value=float(correction_factors[factor_key]),
-                step=0.01,
-                format="%.2f",
-                key=f"factor_{period_key}_{factor_key}",
-                disabled=not allow_sensitive_edits,
-            )
+        is_ambient_form = metadata["form_key"] == "condiciones_ambientales"
+        if is_ambient_form:
+            ranges_per_row = 3
+            for start_index in range(0, len(factor_labels), ranges_per_row):
+                row_keys = factor_labels[start_index:start_index + ranges_per_row]
+                factor_cols = st.columns(len(row_keys))
+                for factor_col, factor_key in zip(factor_cols, row_keys):
+                    label = correction_bands.get(factor_key, {}).get("label", factor_key.replace("_", " ").title())
+                    factor_col.markdown(f"**Temperatura {label}**")
+                    operation_col, value_col = factor_col.columns([1, 2])
+                    correction_operations[factor_key] = operation_col.selectbox(
+                        "Op",
+                        options=["+", "-"],
+                        index=0 if correction_operations[factor_key] == "+" else 1,
+                        key=f"operation_{period_key}_{factor_key}",
+                        disabled=not allow_sensitive_edits,
+                    )
+                    correction_factors[factor_key] = value_col.number_input(
+                        "Factor",
+                        value=float(correction_factors[factor_key]),
+                        step=0.01,
+                        format="%.2f",
+                        key=f"factor_{period_key}_{factor_key}",
+                        disabled=not allow_sensitive_edits,
+                    )
+        else:
+            factor_cols = st.columns(len(factor_labels))
+            for factor_col, factor_key in zip(factor_cols, factor_labels):
+                operation_col, value_col = factor_col.columns([1, 2])
+                label = correction_bands.get(factor_key, {}).get("label", factor_key.replace("_", " ").title())
+                operation_label = f"Operacion temperatura {label}" if is_incubator_form else f"Operacion {label}"
+                factor_value_label = f"Temperatura {label}" if is_incubator_form else label
+                correction_operations[factor_key] = operation_col.selectbox(
+                    operation_label,
+                    options=["+", "-"],
+                    index=0 if correction_operations[factor_key] == "+" else 1,
+                    key=f"operation_{period_key}_{factor_key}",
+                    disabled=not allow_sensitive_edits,
+                )
+                correction_factors[factor_key] = value_col.number_input(
+                    factor_value_label,
+                    value=float(correction_factors[factor_key]),
+                    step=0.01,
+                    format="%.2f",
+                    key=f"factor_{period_key}_{factor_key}",
+                    disabled=not allow_sensitive_edits,
+                )
     else:
         st.caption(
             "Este equipo no usa factores de corrección editables en la plantilla o están marcados como N/A."
