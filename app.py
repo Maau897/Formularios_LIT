@@ -1256,14 +1256,14 @@ def render_configuration(payload: dict[str, Any]) -> None:
                     factor_col.markdown(f"**Temperatura {label}**")
                     operation_col, value_col = factor_col.columns([1, 2])
                     correction_operations[factor_key] = operation_col.selectbox(
-                        "Op",
+                        "Operacion",
                         options=["+", "-"],
                         index=0 if correction_operations[factor_key] == "+" else 1,
                         key=f"operation_{period_key}_{factor_key}",
                         disabled=not allow_sensitive_edits,
                     )
                     correction_factors[factor_key] = value_col.number_input(
-                        "Factor",
+                        "Factor de correccion",
                         value=float(correction_factors[factor_key]),
                         step=0.01,
                         format="%.2f",
