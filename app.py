@@ -1027,6 +1027,25 @@ def get_format_specific_copy(payload: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def format_percentage_display(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if "%" in text:
+        return text
+
+    normalized = text.replace(",", ".")
+    try:
+        numeric = float(normalized)
+    except ValueError:
+        return text
+
+    percentage_value = numeric * 100 if abs(numeric) <= 1 else numeric
+    if percentage_value.is_integer():
+        return f"{int(percentage_value)}%"
+    return f"{percentage_value:.2f}".rstrip("0").rstrip(".") + "%"
+
+
 def render_sidebar(
     payload: dict[str, Any],
     form_keys: list[str],
@@ -1104,6 +1123,7 @@ def render_configuration(payload: dict[str, Any]) -> None:
         st.caption("Rangos, inventario y metadata del equipo estan en solo lectura para este perfil.")
 
     definition = get_form_definition(metadata["form_key"])
+    is_incubator_form = metadata["form_key"] == "incubadoras"
     summary_cols = st.columns(4)
     equipment_name_key = f"equipment_name_{period_key}"
     if equipment_name_key not in st.session_state:
@@ -1173,29 +1193,51 @@ def render_configuration(payload: dict[str, Any]) -> None:
     )
 
     if metadata.get("secondary_label"):
-        st.markdown("**Variable secundaria visible**")
+        secondary_section_title = "%CO2 visible" if is_incubator_form else "Variable secundaria visible"
+        secondary_primary_label = "%CO2 normal" if is_incubator_form else "Nombre de la segunda variable"
+        secondary_minimum_label = "Mínima %CO2" if is_incubator_form else "Mínima secundaria"
+        secondary_maximum_label = "Máxima %CO2" if is_incubator_form else "Máxima secundaria"
+        st.markdown(f"**{secondary_section_title}**")
         secondary_cols = st.columns(3)
         secondary_label_key = f"secondary_label_{period_key}"
         if secondary_label_key not in st.session_state:
-            st.session_state[secondary_label_key] = str(metadata["secondary_label"])
+            st.session_state[secondary_label_key] = (
+                format_percentage_display(metadata["secondary_label"])
+                if is_incubator_form
+                else str(metadata["secondary_label"])
+            )
+        elif is_incubator_form:
+            st.session_state[secondary_label_key] = format_percentage_display(st.session_state[secondary_label_key])
         metadata["secondary_label"] = secondary_cols[0].text_input(
-            "Nombre de la segunda variable",
+            secondary_primary_label,
             key=secondary_label_key,
             disabled=not allow_sensitive_edits,
         )
         secondary_minimum_key = f"secondary_minimum_{period_key}"
         if secondary_minimum_key not in st.session_state:
-            st.session_state[secondary_minimum_key] = str(metadata.get("secondary_minimum_label", ""))
+            st.session_state[secondary_minimum_key] = (
+                format_percentage_display(metadata.get("secondary_minimum_label", ""))
+                if is_incubator_form
+                else str(metadata.get("secondary_minimum_label", ""))
+            )
+        elif is_incubator_form:
+            st.session_state[secondary_minimum_key] = format_percentage_display(st.session_state[secondary_minimum_key])
         metadata["secondary_minimum_label"] = secondary_cols[1].text_input(
-            "Mínima secundaria",
+            secondary_minimum_label,
             key=secondary_minimum_key,
             disabled=not allow_sensitive_edits,
         )
         secondary_maximum_key = f"secondary_maximum_{period_key}"
         if secondary_maximum_key not in st.session_state:
-            st.session_state[secondary_maximum_key] = str(metadata.get("secondary_maximum_label", ""))
+            st.session_state[secondary_maximum_key] = (
+                format_percentage_display(metadata.get("secondary_maximum_label", ""))
+                if is_incubator_form
+                else str(metadata.get("secondary_maximum_label", ""))
+            )
+        elif is_incubator_form:
+            st.session_state[secondary_maximum_key] = format_percentage_display(st.session_state[secondary_maximum_key])
         metadata["secondary_maximum_label"] = secondary_cols[2].text_input(
-            "Máxima secundaria",
+            secondary_maximum_label,
             key=secondary_maximum_key,
             disabled=not allow_sensitive_edits,
         )
@@ -1207,15 +1249,17 @@ def render_configuration(payload: dict[str, Any]) -> None:
         for factor_col, factor_key in zip(factor_cols, factor_labels):
             operation_col, value_col = factor_col.columns([1, 2])
             label = correction_bands.get(factor_key, {}).get("label", factor_key.replace("_", " ").title())
+            operation_label = f"Operacion temperatura {label}" if is_incubator_form else f"Operacion {label}"
+            factor_value_label = f"Temperatura {label}" if is_incubator_form else label
             correction_operations[factor_key] = operation_col.selectbox(
-                f"Operacion {label}",
+                operation_label,
                 options=["+", "-"],
                 index=0 if correction_operations[factor_key] == "+" else 1,
                 key=f"operation_{period_key}_{factor_key}",
                 disabled=not allow_sensitive_edits,
             )
             correction_factors[factor_key] = value_col.number_input(
-                label,
+                factor_value_label,
                 value=float(correction_factors[factor_key]),
                 step=0.01,
                 format="%.2f",
@@ -1285,7 +1329,7 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                     if metric["key"] == "measured_temperatures":
                         heading = metadata_label = payload["metadata"].get("temperature_label", "Temperatura")
                     else:
-                        heading = payload["metadata"].get("secondary_label", "Variable secundaria")
+                        heading = "%CO2" if payload["metadata"]["form_key"] == "incubadoras" else payload["metadata"].get("secondary_label", "Variable secundaria")
                     st.markdown(f"**{heading}**")
                 metric_cols = st.columns(3)
                 metric_values: list[str] = []
