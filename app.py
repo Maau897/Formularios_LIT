@@ -226,7 +226,6 @@ class DailyCapture:
 
 
 def default_daily_capture(day: int) -> DailyCapture:
-    today = date.today().isoformat()
     is_weekday = date.today().replace(day=min(day, 28)).weekday() < 5
     return DailyCapture(
         active=is_weekday,
@@ -235,7 +234,7 @@ def default_daily_capture(day: int) -> DailyCapture:
         secondary_measurements=["", "", ""],
         performed_by_slots=["", "", ""],
         verified_by="",
-        recorded_on=today,
+        recorded_on="",
         notes="",
     )
 
@@ -1347,9 +1346,10 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
         st.info("No hay dias activos. Marca al menos un dia laborado para capturar informacion.")
         return
 
+    preferred_day = get_preferred_capture_day(payload, active_days)
     for day in active_days:
         record = payload["daily_records"][str(day)]
-        with st.expander(f"Dia {day}", expanded=day == active_days[0]):
+        with st.expander(f"Dia {day}", expanded=day == preferred_day):
             for metric in metrics:
                 if len(metrics) > 1:
                     if metric["key"] == "measured_temperatures":
@@ -1465,6 +1465,21 @@ def parse_streamlit_date(value: str) -> date:
         return date.today()
 
 
+def is_current_period(payload: dict[str, Any]) -> bool:
+    today = date.today()
+    return (
+        int(payload["metadata"]["year"]) == today.year
+        and int(payload["metadata"]["month"]) == today.month
+    )
+
+
+def get_preferred_capture_day(payload: dict[str, Any], active_days: list[int]) -> int:
+    today = date.today()
+    if is_current_period(payload) and today.day in active_days:
+        return today.day
+    return active_days[0]
+
+
 def get_period_default_date(payload: dict[str, Any], day: int, recorded_on: str) -> date:
     year = int(payload["metadata"]["year"])
     month = int(payload["metadata"]["month"])
@@ -1475,7 +1490,33 @@ def get_period_default_date(payload: dict[str, Any], day: int, recorded_on: str)
         if parsed.year == year and parsed.month == month:
             return parsed
 
+    today = date.today()
+    if year == today.year and month == today.month and day == today.day:
+        return today
+
     return date(year, month, min(day, last_day))
+
+
+def get_closure_default_date(payload: dict[str, Any]) -> date:
+    closure = payload["monthly_closure"]
+    reviewed_on = str(closure.get("reviewed_on", "")).strip()
+    reviewed_by = str(closure.get("reviewed_by", "")).strip()
+
+    if reviewed_by:
+        return parse_streamlit_date(reviewed_on)
+
+    if is_current_period(payload):
+        return date.today()
+
+    year = int(payload["metadata"]["year"])
+    month = int(payload["metadata"]["month"])
+    last_day = monthrange(year, month)[1]
+    if reviewed_on:
+        parsed = parse_streamlit_date(reviewed_on)
+        if parsed.year == year and parsed.month == month:
+            return parsed
+
+    return date(year, month, last_day)
 
 
 def render_monthly_closure(payload: dict[str, Any]) -> None:
@@ -1514,8 +1555,11 @@ def render_monthly_closure(payload: dict[str, Any]) -> None:
     else:
         review_cols[0].caption("Firma digital: pendiente")
     reviewed_on_key = f"reviewed_on_{period_key}"
+    default_review_date = get_closure_default_date(payload)
     if reviewed_on_key not in st.session_state:
-        st.session_state[reviewed_on_key] = parse_streamlit_date(closure["reviewed_on"])
+        st.session_state[reviewed_on_key] = default_review_date
+    elif not closure["reviewed_by"].strip() and is_current_period(payload):
+        st.session_state[reviewed_on_key] = default_review_date
     closure["reviewed_on"] = review_cols[1].date_input(
         "Fecha de revision",
         key=reviewed_on_key,
