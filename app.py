@@ -434,10 +434,10 @@ def coerce_factor_value(raw_value: Any) -> tuple[str, float]:
 
 
 def parse_range_bounds(label_text: str) -> tuple[float, float] | None:
-    numbers = re.findall(r"-?\d+(?:\.\d+)?", label_text)
-    if len(numbers) < 2:
+    match = re.search(r"(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)", label_text)
+    if not match:
         return None
-    return float(numbers[0]), float(numbers[1])
+    return float(match.group(1)), float(match.group(2))
 
 
 def find_value_after_label(
