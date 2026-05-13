@@ -1045,6 +1045,25 @@ def format_percentage_display(value: Any) -> str:
     return f"{percentage_value:.2f}".rstrip("0").rstrip(".") + "%"
 
 
+def is_ambient_form(payload: dict[str, Any]) -> bool:
+    return payload["metadata"]["form_key"] == "condiciones_ambientales"
+
+
+def is_ambient_humidity_payload(payload: dict[str, Any]) -> bool:
+    equipment_code = str(payload["metadata"].get("equipment_code", "")).upper()
+    return is_ambient_form(payload) and equipment_code.startswith("HUMEDAD")
+
+
+def get_ambient_variable_name(payload: dict[str, Any]) -> str:
+    return "% Humedad" if is_ambient_humidity_payload(payload) else "Temperatura"
+
+
+def get_primary_metric_display_label(payload: dict[str, Any], metric: dict[str, Any]) -> str:
+    if is_ambient_form(payload):
+        return "Humedad medida" if is_ambient_humidity_payload(payload) else "Temperatura medida"
+    return str(metric["label"])
+
+
 def render_sidebar(
     payload: dict[str, Any],
     form_keys: list[str],
@@ -1123,6 +1142,8 @@ def render_configuration(payload: dict[str, Any]) -> None:
 
     definition = get_form_definition(metadata["form_key"])
     is_incubator_form = metadata["form_key"] == "incubadoras"
+    ambient_variable_name = get_ambient_variable_name(payload) if is_ambient_form(payload) else ""
+    is_ambient_humidity = is_ambient_humidity_payload(payload)
     summary_cols = st.columns(4)
     equipment_name_key = f"equipment_name_{period_key}"
     if equipment_name_key not in st.session_state:
@@ -1168,25 +1189,37 @@ def render_configuration(payload: dict[str, Any]) -> None:
     )
     normal_key = f"normal_{period_key}"
     if normal_key not in st.session_state:
-        st.session_state[normal_key] = str(metadata["temperature_label"])
+        st.session_state[normal_key] = (
+            format_percentage_display(metadata["temperature_label"])
+            if is_ambient_humidity
+            else str(metadata["temperature_label"])
+        )
     metadata["temperature_label"] = detail_cols[1].text_input(
-        "Valor normal",
+        f"{ambient_variable_name} normal" if ambient_variable_name else "Valor normal",
         key=normal_key,
         disabled=not allow_sensitive_edits,
     )
     minimum_key = f"minimum_{period_key}"
     if minimum_key not in st.session_state:
-        st.session_state[minimum_key] = str(metadata["minimum_label"])
+        st.session_state[minimum_key] = (
+            format_percentage_display(metadata["minimum_label"])
+            if is_ambient_humidity
+            else str(metadata["minimum_label"])
+        )
     metadata["minimum_label"] = detail_cols[2].text_input(
-        "Mínima",
+        f"Mínima {ambient_variable_name.lower()}" if ambient_variable_name else "Mínima",
         key=minimum_key,
         disabled=not allow_sensitive_edits,
     )
     maximum_key = f"maximum_{period_key}"
     if maximum_key not in st.session_state:
-        st.session_state[maximum_key] = str(metadata["maximum_label"])
+        st.session_state[maximum_key] = (
+            format_percentage_display(metadata["maximum_label"])
+            if is_ambient_humidity
+            else str(metadata["maximum_label"])
+        )
     metadata["maximum_label"] = detail_cols[3].text_input(
-        "Máxima",
+        f"Máxima {ambient_variable_name.lower()}" if ambient_variable_name else "Máxima",
         key=maximum_key,
         disabled=not allow_sensitive_edits,
     )
@@ -1244,15 +1277,14 @@ def render_configuration(payload: dict[str, Any]) -> None:
     if definition["supports_corrections"] and correction_factors:
         st.caption("Factores de correccion editables por rango para este equipo.")
         factor_labels = list(correction_factors.keys())
-        is_ambient_form = metadata["form_key"] == "condiciones_ambientales"
-        if is_ambient_form:
+        if is_ambient_form(payload):
             ranges_per_row = 3
             for start_index in range(0, len(factor_labels), ranges_per_row):
                 row_keys = factor_labels[start_index:start_index + ranges_per_row]
                 factor_cols = st.columns(len(row_keys))
                 for factor_col, factor_key in zip(factor_cols, row_keys):
                     label = correction_bands.get(factor_key, {}).get("label", factor_key.replace("_", " ").title())
-                    factor_col.markdown(f"**Temperatura {label}**")
+                    factor_col.markdown(f"**{ambient_variable_name} {label}**")
                     operation_col, value_col = factor_col.columns([1, 2])
                     correction_operations[factor_key] = operation_col.selectbox(
                         "Operacion",
@@ -1351,9 +1383,10 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
         record = payload["daily_records"][str(day)]
         with st.expander(f"Dia {day}", expanded=day == preferred_day):
             for metric in metrics:
-                if len(metrics) > 1:
+                metric_label = get_primary_metric_display_label(payload, metric)
+                if len(metrics) > 1 or is_ambient_form(payload):
                     if metric["key"] == "measured_temperatures":
-                        heading = metadata_label = payload["metadata"].get("temperature_label", "Temperatura")
+                        heading = get_ambient_variable_name(payload) if is_ambient_form(payload) else payload["metadata"].get("temperature_label", "Temperatura")
                     else:
                         heading = "%CO2" if payload["metadata"]["form_key"] == "incubadoras" else payload["metadata"].get("secondary_label", "Variable secundaria")
                     st.markdown(f"**{heading}**")
@@ -1365,7 +1398,7 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                     if input_key not in st.session_state:
                         st.session_state[input_key] = record[metric["key"]][index]
                     value = metric_cols[index].text_input(
-                        f"{metric['label']} {label}",
+                        f"{metric_label} {label}",
                         key=input_key,
                         disabled=not allow_daily_edits,
                         placeholder="-20.3" if metric["unit"] == "°C" else "",
@@ -1576,7 +1609,8 @@ def validate_payload(payload: dict[str, Any]) -> list[str]:
             continue
         for metric in definition["metrics"]:
             if not all(value.strip() for value in record[metric["key"]]):
-                errors.append(f"Dia {day}: faltan capturas de {metric['label'].lower()}.")
+                metric_label = get_primary_metric_display_label(payload, metric).lower()
+                errors.append(f"Dia {day}: faltan capturas de {metric_label}.")
         if not all(value.strip() for value in record["performed_by_slots"]):
             errors.append(f"Dia {day}: faltan responsables en una o mas horas.")
         if not record["verified_by"].strip():
