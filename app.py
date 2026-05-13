@@ -1064,6 +1064,38 @@ def get_primary_metric_display_label(payload: dict[str, Any], metric: dict[str, 
     return str(metric["label"])
 
 
+def is_humidity_metric(payload: dict[str, Any], metric: dict[str, Any]) -> bool:
+    return is_ambient_humidity_payload(payload) and metric["key"] == "measured_temperatures"
+
+
+def parse_measurement_number(raw_value: str) -> float | None:
+    cleaned = (
+        raw_value.strip()
+        .replace(",", ".")
+        .replace("%", "")
+        .replace("≤", "")
+        .replace("≥", "")
+    )
+    if not cleaned:
+        return None
+
+    try:
+        numeric = float(cleaned)
+    except ValueError:
+        return None
+
+    return numeric * 100 if 0 < abs(numeric) <= 1 else numeric
+
+
+def format_metric_value(payload: dict[str, Any], metric: dict[str, Any], value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if is_humidity_metric(payload, metric):
+        return format_percentage_display(text)
+    return text
+
+
 def render_sidebar(
     payload: dict[str, Any],
     form_keys: list[str],
@@ -1412,8 +1444,9 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                             payload["correction_operations"],
                         )
                         corrected_values.append(corrected_value)
+                        corrected_display = format_metric_value(payload, metric, corrected_value)
                         metric_cols[index].caption(
-                            f"Corregida: {corrected_value}" if corrected_value else "Corregida: pendiente"
+                            f"Corregida: {corrected_display}" if corrected_display else "Corregida: pendiente"
                         )
                 record[metric["key"]] = metric_values
                 if metric["key"] == "measured_temperatures":
@@ -1718,13 +1751,15 @@ def populate_template(payload: dict[str, Any]) -> BytesIO:
             if any(record["corrected_temperatures"]) and definition["metrics"][0].get("corrected")
             else record["measured_temperatures"]
         )
-        primary_unit = definition["metrics"][0]["unit"]
+        primary_metric = definition["metrics"][0]
+        primary_unit = primary_metric["unit"]
         for index, temperature in enumerate(primary_values):
+            formatted_value = format_metric_value(payload, primary_metric, temperature)
             write_slot_value(
                 worksheet,
                 row_group["metric_1"],
                 start_col + index,
-                f"{temperature} {primary_unit}".strip() if temperature else "",
+                f"{formatted_value} {primary_unit}".strip() if formatted_value else "",
                 font_size=18,
                 rotate_like_hours=True,
             )
@@ -2244,13 +2279,8 @@ def calculate_corrected_temperature(
     correction_factors: dict[str, Any],
     correction_operations: dict[str, str],
 ) -> str:
-    cleaned = raw_value.strip().replace(",", ".")
-    if not cleaned:
-        return ""
-
-    try:
-        measured = float(cleaned)
-    except ValueError:
+    measured = parse_measurement_number(raw_value)
+    if measured is None:
         return ""
 
     factor_key = None
