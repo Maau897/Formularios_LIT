@@ -2286,6 +2286,10 @@ def calculate_corrected_temperature(
     for index, (key, band) in enumerate(band_items):
         min_value = float(band["min"])
         max_value = float(band["max"])
+        if max_value < min_value:
+            reparsed_bounds = parse_range_bounds(str(band.get("label", "")))
+            if reparsed_bounds is not None:
+                min_value, max_value = reparsed_bounds
         is_last = index == len(band_items) - 1
         if min_value <= measured <= max_value if is_last else min_value <= measured < max_value:
             factor_key = key
