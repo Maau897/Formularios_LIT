@@ -1507,6 +1507,8 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
             date_key = f"date_{period_key}_{day}"
             if date_key not in st.session_state:
                 st.session_state[date_key] = current_date
+            elif is_current_period(payload) and uses_default_daily_record_date(payload, day, record["recorded_on"]):
+                st.session_state[date_key] = current_date
             record["recorded_on"] = verifier_cols[1].date_input(
                 "Fecha de verificacion",
                 min_value=date(
@@ -1558,21 +1560,46 @@ def get_preferred_capture_day(payload: dict[str, Any], active_days: list[int]) -
     return active_days[0]
 
 
-def get_period_default_date(payload: dict[str, Any], day: int, recorded_on: str) -> date:
+def get_row_period_date(payload: dict[str, Any], day: int) -> date:
     year = int(payload["metadata"]["year"])
     month = int(payload["metadata"]["month"])
     last_day = monthrange(year, month)[1]
+    return date(year, month, min(day, last_day))
+
+
+def uses_default_daily_record_date(payload: dict[str, Any], day: int, recorded_on: str) -> bool:
+    if not recorded_on.strip():
+        return True
+    parsed = parse_streamlit_date(recorded_on)
+    return parsed == get_row_period_date(payload, day)
+
+
+def get_period_default_date(payload: dict[str, Any], day: int, recorded_on: str) -> date:
+    year = int(payload["metadata"]["year"])
+    month = int(payload["metadata"]["month"])
+    if is_current_period(payload) and uses_default_daily_record_date(payload, day, recorded_on):
+        return date.today()
 
     if recorded_on.strip():
         parsed = parse_streamlit_date(recorded_on)
         if parsed.year == year and parsed.month == month:
             return parsed
 
-    today = date.today()
-    if year == today.year and month == today.month and day == today.day:
-        return today
+    return get_row_period_date(payload, day)
 
-    return date(year, month, min(day, last_day))
+
+def get_period_end_date(payload: dict[str, Any]) -> date:
+    year = int(payload["metadata"]["year"])
+    month = int(payload["metadata"]["month"])
+    last_day = monthrange(year, month)[1]
+    return date(year, month, last_day)
+
+
+def uses_default_closure_date(payload: dict[str, Any], reviewed_on: str) -> bool:
+    if not reviewed_on.strip():
+        return True
+    parsed = parse_streamlit_date(reviewed_on)
+    return parsed == get_period_end_date(payload)
 
 
 def get_closure_default_date(payload: dict[str, Any]) -> date:
@@ -1580,21 +1607,18 @@ def get_closure_default_date(payload: dict[str, Any]) -> date:
     reviewed_on = str(closure.get("reviewed_on", "")).strip()
     reviewed_by = str(closure.get("reviewed_by", "")).strip()
 
+    if is_current_period(payload) and uses_default_closure_date(payload, reviewed_on):
+        return date.today()
+
+    if reviewed_on:
+        parsed = parse_streamlit_date(reviewed_on)
+        if parsed.year == int(payload["metadata"]["year"]) and parsed.month == int(payload["metadata"]["month"]):
+            return parsed
+
     if reviewed_by:
         return parse_streamlit_date(reviewed_on)
 
-    if is_current_period(payload):
-        return date.today()
-
-    year = int(payload["metadata"]["year"])
-    month = int(payload["metadata"]["month"])
-    last_day = monthrange(year, month)[1]
-    if reviewed_on:
-        parsed = parse_streamlit_date(reviewed_on)
-        if parsed.year == year and parsed.month == month:
-            return parsed
-
-    return date(year, month, last_day)
+    return get_period_end_date(payload)
 
 
 def render_monthly_closure(payload: dict[str, Any]) -> None:
@@ -1636,7 +1660,7 @@ def render_monthly_closure(payload: dict[str, Any]) -> None:
     default_review_date = get_closure_default_date(payload)
     if reviewed_on_key not in st.session_state:
         st.session_state[reviewed_on_key] = default_review_date
-    elif not closure["reviewed_by"].strip() and is_current_period(payload):
+    elif is_current_period(payload) and uses_default_closure_date(payload, str(closure.get("reviewed_on", ""))):
         st.session_state[reviewed_on_key] = default_review_date
     closure["reviewed_on"] = review_cols[1].date_input(
         "Fecha de revision",
