@@ -855,8 +855,6 @@ def merge_payload_with_saved_data(
     default_payload = build_default_payload(equipment_code=equipment_code, form_key=form_key)
     default_payload["metadata"].update(data.get("metadata", {}))
     default_payload["metadata_cells"] = data.get("metadata_cells", default_payload.get("metadata_cells", {}))
-    default_payload["correction_bands"].update(data.get("correction_bands", {}))
-    default_payload["correction_cells"] = data.get("correction_cells", default_payload.get("correction_cells", {}))
     default_payload["correction_factors"].update(data.get("correction_factors", {}))
     default_payload["correction_operations"].update(data.get("correction_operations", {}))
     default_payload["non_working_days"] = data.get("non_working_days", [])
