@@ -176,7 +176,7 @@ FORM_DEFINITIONS: dict[str, dict[str, Any]] = {
         "default_equipment": "ICO2-1",
         "supports_corrections": True,
         "metrics": [
-            {"key": "measured_temperatures", "label": "Temperatura medida", "unit": "°C", "corrected": False},
+            {"key": "measured_temperatures", "label": "Temperatura medida", "unit": "°C", "corrected": True},
             {"key": "secondary_measurements", "label": "%CO2", "unit": "", "corrected": False},
         ],
         "layout": {
@@ -1066,6 +1066,13 @@ def is_humidity_metric(payload: dict[str, Any], metric: dict[str, Any]) -> bool:
     return is_ambient_humidity_payload(payload) and metric["key"] == "measured_temperatures"
 
 
+def is_incubator_co2_metric(payload: dict[str, Any], metric: dict[str, Any]) -> bool:
+    return (
+        payload["metadata"]["form_key"] == "incubadoras"
+        and metric["key"] == "secondary_measurements"
+    )
+
+
 def parse_measurement_number(raw_value: str) -> float | None:
     cleaned = (
         raw_value.strip()
@@ -1090,6 +1097,8 @@ def format_metric_value(payload: dict[str, Any], metric: dict[str, Any], value: 
     if not text:
         return ""
     if is_humidity_metric(payload, metric):
+        return format_percentage_display(text)
+    if is_incubator_co2_metric(payload, metric):
         return format_percentage_display(text)
     return text
 
@@ -1416,7 +1425,12 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                 metric_label = get_primary_metric_display_label(payload, metric)
                 if len(metrics) > 1 or is_ambient_form(payload):
                     if metric["key"] == "measured_temperatures":
-                        heading = get_ambient_variable_name(payload) if is_ambient_form(payload) else payload["metadata"].get("temperature_label", "Temperatura")
+                        if is_ambient_form(payload):
+                            heading = get_ambient_variable_name(payload)
+                        elif payload["metadata"]["form_key"] == "incubadoras":
+                            heading = "Temperatura medida"
+                        else:
+                            heading = payload["metadata"].get("temperature_label", "Temperatura")
                     else:
                         heading = "%CO2" if payload["metadata"]["form_key"] == "incubadoras" else payload["metadata"].get("secondary_label", "Variable secundaria")
                     st.markdown(f"**{heading}**")
@@ -1765,11 +1779,12 @@ def populate_template(payload: dict[str, Any]) -> BytesIO:
         if len(definition["metrics"]) > 1 and "metric_2" in row_group:
             second_metric = definition["metrics"][1]
             for index, value in enumerate(record[second_metric["key"]]):
+                formatted_second_value = format_metric_value(payload, second_metric, value)
                 write_slot_value(
                     worksheet,
                     row_group["metric_2"],
                     start_col + index,
-                    f"{value} {second_metric['unit']}".strip() if value else "",
+                    f"{formatted_second_value} {second_metric['unit']}".strip() if formatted_second_value else "",
                     font_size=18,
                     rotate_like_hours=True,
                 )
