@@ -1902,14 +1902,16 @@ def write_observations_cell(worksheet: Any, coordinate: str, value: str) -> None
             worksheet.column_dimensions[get_column_letter(column)].width
         )
 
-    approx_chars_per_line = max(int(total_width_pixels / 7), 12)
+    approx_chars_per_line = max(int(total_width_pixels / 18), 45)
     content_lines = str(value or "").splitlines() or [""]
     estimated_lines = 0
     for line in content_lines:
-        estimated_lines += max(1, (len(line) + approx_chars_per_line - 1) // approx_chars_per_line)
+        width_based_lines = max(1, (len(line) + approx_chars_per_line - 1) // approx_chars_per_line)
+        conservative_lines = max(1, (len(line) + 79) // 80)
+        estimated_lines += max(width_based_lines, conservative_lines)
 
     total_rows = max_row - min_row + 1
-    total_height_points = max(30.0, estimated_lines * 15.0)
+    total_height_points = max(60.0, estimated_lines * 18.0)
     row_height_points = total_height_points / total_rows
     for row in range(min_row, max_row + 1):
         current_height = worksheet.row_dimensions[row].height
