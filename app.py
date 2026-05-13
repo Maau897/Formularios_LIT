@@ -1837,7 +1837,7 @@ def populate_template(payload: dict[str, Any]) -> BytesIO:
             get_effective_record_date(record),
         )
 
-    write_template_cell(worksheet, footer_map["observations"], payload["monthly_closure"]["observations"])
+    write_observations_cell(worksheet, footer_map["observations"], payload["monthly_closure"]["observations"])
     write_signature_or_text_cell(
         worksheet,
         footer_map["reviewed_by"],
@@ -1878,6 +1878,42 @@ def resolve_writable_coordinate(worksheet: Any, coordinate: str) -> str:
 
 def write_template_cell(worksheet: Any, coordinate: str, value: Any) -> None:
     worksheet[resolve_writable_coordinate(worksheet, coordinate)] = value
+
+
+def write_observations_cell(worksheet: Any, coordinate: str, value: str) -> None:
+    writable_coordinate = resolve_writable_coordinate(worksheet, coordinate)
+    cell = worksheet[writable_coordinate]
+    cell.value = value
+    cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+
+    merged_range = get_merged_range_for_coordinate(worksheet, writable_coordinate)
+    if merged_range is None:
+        min_col = max_col = cell.column
+        min_row = max_row = cell.row
+    else:
+        min_col = merged_range.min_col
+        max_col = merged_range.max_col
+        min_row = merged_range.min_row
+        max_row = merged_range.max_row
+
+    total_width_pixels = 0.0
+    for column in range(min_col, max_col + 1):
+        total_width_pixels += column_width_to_pixels(
+            worksheet.column_dimensions[get_column_letter(column)].width
+        )
+
+    approx_chars_per_line = max(int(total_width_pixels / 7), 12)
+    content_lines = str(value or "").splitlines() or [""]
+    estimated_lines = 0
+    for line in content_lines:
+        estimated_lines += max(1, (len(line) + approx_chars_per_line - 1) // approx_chars_per_line)
+
+    total_rows = max_row - min_row + 1
+    total_height_points = max(30.0, estimated_lines * 15.0)
+    row_height_points = total_height_points / total_rows
+    for row in range(min_row, max_row + 1):
+        current_height = worksheet.row_dimensions[row].height
+        worksheet.row_dimensions[row].height = max(current_height or 0, row_height_points)
 
 
 def normalize_signature_text(value: str) -> str:
