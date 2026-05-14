@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shutil
+import time
 from typing import Any
 import unicodedata
 
@@ -212,6 +213,7 @@ DEFAULT_FORM_KEY = "congeladores"
 DEFAULT_EQUIPMENT_CODE = FORM_DEFINITIONS[DEFAULT_FORM_KEY]["default_equipment"]
 ROLES_USUARIO = ["captura", "responsable", "auditor", "calidad", "admin"]
 SENSITIVE_EDITOR_ROLES = {"calidad", "admin"}
+AUTOSAVE_DEBOUNCE_SECONDS = 3.0
 
 
 @dataclass
@@ -911,6 +913,7 @@ def build_default_payload(
         "daily_records": {
             str(day): asdict(default_daily_capture(day)) for day in range(1, 32)
         },
+        "change_log": [],
         "monthly_closure": {
             "observations": "",
             "reviewed_by": "",
@@ -934,6 +937,7 @@ def merge_payload_with_saved_data(
     default_payload["correction_factors"].update(data.get("correction_factors", {}))
     default_payload["correction_operations"].update(data.get("correction_operations", {}))
     default_payload["non_working_days"] = data.get("non_working_days", [])
+    default_payload["change_log"] = data.get("change_log", [])
     default_payload["monthly_closure"].update(data.get("monthly_closure", {}))
 
     incoming_records = data.get("daily_records", {})
@@ -1015,13 +1019,111 @@ def load_saved_payload(
     return merge_payload_with_saved_data(data, equipment_code=equipment_code, form_key=form_key)
 
 
+def get_comparable_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    comparable_payload = json.loads(json.dumps(payload, ensure_ascii=False))
+    comparable_payload.pop("change_log", None)
+    return comparable_payload
+
+
+def get_payload_signature(payload: dict[str, Any]) -> str:
+    return json.dumps(get_comparable_payload(payload), ensure_ascii=False, sort_keys=True)
+
+
+def remember_saved_snapshot(payload: dict[str, Any]) -> None:
+    st.session_state["last_saved_payload_snapshot"] = get_comparable_payload(payload)
+    st.session_state["last_saved_payload_signature"] = get_payload_signature(payload)
+
+
+def format_change_log_item(payload: dict[str, Any], metric: dict[str, Any], value: str) -> str:
+    formatted = format_metric_value(payload, metric, value)
+    return formatted or "vacio"
+
+
+def build_change_log_entry(previous_payload: dict[str, Any], current_payload: dict[str, Any]) -> dict[str, Any] | None:
+    definition = get_form_definition(current_payload["metadata"]["form_key"])
+    items: list[str] = []
+
+    for day in range(1, 32):
+        day_key = str(day)
+        previous_record = previous_payload.get("daily_records", {}).get(day_key, {})
+        current_record = current_payload.get("daily_records", {}).get(day_key, {})
+
+        for metric in definition["metrics"]:
+            metric_label = get_primary_metric_display_label(current_payload, metric)
+            previous_values = previous_record.get(metric["key"], ["", "", ""])
+            current_values = current_record.get(metric["key"], ["", "", ""])
+            for index, slot_label in enumerate(TIME_SLOTS):
+                previous_value = str(previous_values[index] if index < len(previous_values) else "").strip()
+                current_value = str(current_values[index] if index < len(current_values) else "").strip()
+                if not previous_value or previous_value == current_value:
+                    continue
+                old_display = format_change_log_item(current_payload, metric, previous_value)
+                new_display = format_change_log_item(current_payload, metric, current_value)
+                items.append(f"Dia {day} {metric_label} {slot_label}: {old_display} -> {new_display}")
+
+        previous_verified = str(previous_record.get("verified_by", "")).strip()
+        current_verified = str(current_record.get("verified_by", "")).strip()
+        if previous_verified and previous_verified != current_verified:
+            items.append(f"Dia {day} Verifico: {previous_verified} -> {current_verified or 'vacio'}")
+
+        previous_date = str(previous_record.get("recorded_on", "")).strip()
+        current_date = str(current_record.get("recorded_on", "")).strip()
+        if previous_date and previous_date != current_date:
+            items.append(
+                f"Dia {day} Fecha de verificacion: {normalize_excel_date(previous_date)} -> {normalize_excel_date(current_date)}"
+            )
+
+    if not items:
+        return None
+
+    return {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "user": str(st.session_state.get("usuario_email", "")).strip(),
+        "items": items,
+    }
+
+
+def compose_observations_export_text(payload: dict[str, Any]) -> str:
+    base_observations = str(payload["monthly_closure"].get("observations", "")).strip()
+    change_log = payload.get("change_log", [])
+    if not change_log:
+        return base_observations
+
+    audit_lines: list[str] = []
+    for entry in change_log[-6:]:
+        timestamp = str(entry.get("timestamp", "")).replace("T", " ")
+        user = str(entry.get("user", "")).strip() or "usuario"
+        items = entry.get("items", [])
+        if not items:
+            continue
+        visible_items = items[:3]
+        detail = "; ".join(str(item) for item in visible_items)
+        if len(items) > len(visible_items):
+            detail += f"; y {len(items) - len(visible_items)} cambio(s) mas"
+        audit_lines.append(f"[{timestamp}] {user}: {detail}")
+
+    if not audit_lines:
+        return base_observations
+
+    audit_block = "Registro de correcciones:\n" + "\n".join(audit_lines)
+    return f"{base_observations}\n\n{audit_block}" if base_observations else audit_block
+
+
 def save_payload(payload: dict[str, Any]) -> str:
+    previous_snapshot = st.session_state.get("last_saved_payload_snapshot")
+    if isinstance(previous_snapshot, dict):
+        change_entry = build_change_log_entry(previous_snapshot, get_comparable_payload(payload))
+        if change_entry is not None:
+            payload.setdefault("change_log", []).append(change_entry)
+            payload["change_log"] = payload["change_log"][-80:]
+
     if supabase_storage_enabled():
         try:
             save_remote_period_payload(
                 payload,
                 updated_by=str(st.session_state.get("usuario_email", "")).strip(),
             )
+            remember_saved_snapshot(payload)
             return "Supabase"
         except Exception:
             pass
@@ -1029,6 +1131,7 @@ def save_payload(payload: dict[str, Any]) -> str:
     data_file = get_period_file(payload)
     with data_file.open("w", encoding="utf-8") as file:
         json.dump(payload, file, ensure_ascii=False, indent=2)
+    remember_saved_snapshot(payload)
     return "Local JSON"
 
 
@@ -1707,6 +1810,8 @@ def render_monthly_closure(payload: dict[str, Any]) -> None:
         placeholder="Anota incidencias, mantenimiento, ajustes o aclaraciones del periodo.",
         disabled=not allow_closure_edits,
     )
+    if payload.get("change_log"):
+        st.caption("Las correcciones sobre capturas previas se anexan automaticamente en Observaciones al exportar.")
     review_cols = st.columns(2)
     reviewed_by_key = f"reviewed_by_{period_key}"
     if reviewed_by_key not in st.session_state:
@@ -1905,7 +2010,7 @@ def populate_template(payload: dict[str, Any]) -> BytesIO:
             get_effective_record_date(record),
         )
 
-    write_observations_cell(worksheet, footer_map["observations"], payload["monthly_closure"]["observations"])
+    write_observations_cell(worksheet, footer_map["observations"], compose_observations_export_text(payload))
     write_signature_or_text_cell(
         worksheet,
         footer_map["reviewed_by"],
@@ -2448,10 +2553,38 @@ def calculate_corrected_temperature(
     return f"{corrected:.2f}"
 
 
+def maybe_autosave_payload(payload: dict[str, Any]) -> None:
+    if not can_edit_daily_records():
+        return
+
+    last_saved_signature = st.session_state.get("last_saved_payload_signature")
+    current_signature = get_payload_signature(payload)
+    if last_saved_signature is None:
+        remember_saved_snapshot(payload)
+        return
+    if current_signature == last_saved_signature:
+        return
+
+    now = time.time()
+    last_attempt = float(st.session_state.get("last_autosave_attempt_at", 0.0))
+    if now - last_attempt < AUTOSAVE_DEBOUNCE_SECONDS:
+        return
+
+    st.session_state["last_autosave_attempt_at"] = now
+    try:
+        saved_backend = save_payload(payload)
+        st.session_state["last_autosave_at"] = datetime.now().strftime("%H:%M:%S")
+        st.session_state["last_autosave_backend"] = saved_backend
+        st.session_state["last_autosave_error"] = ""
+    except Exception as exc:
+        st.session_state["last_autosave_error"] = str(exc)
+
+
 def render_actions(payload: dict[str, Any]) -> None:
     st.subheader("5. Guardado y exportacion")
     allow_daily_edits = can_edit_daily_records()
     allow_export = can_export_period()
+    maybe_autosave_payload(payload)
     errors = validate_payload(payload)
     if errors:
         st.warning("Hay datos pendientes antes de exportar.")
@@ -2461,6 +2594,15 @@ def render_actions(payload: dict[str, Any]) -> None:
             st.write(f"- ... y {len(errors) - 8} mas.")
     else:
         st.success("La captura esta completa para exportar la plantilla.")
+
+    autosave_error = str(st.session_state.get("last_autosave_error", "")).strip()
+    autosave_at = str(st.session_state.get("last_autosave_at", "")).strip()
+    autosave_backend = str(st.session_state.get("last_autosave_backend", "")).strip()
+    if autosave_error:
+        st.caption(f"Autoguardado con problema: {autosave_error}")
+    elif autosave_at:
+        autosave_label = "respaldo local" if autosave_backend == "Local JSON" else "correcto"
+        st.caption(f"Autoguardado {autosave_label}: {autosave_at}")
 
     save_col, export_col, reset_col = st.columns(3)
     if save_col.button("Guardar borrador", use_container_width=True, disabled=not allow_daily_edits):
@@ -2544,6 +2686,7 @@ def main() -> None:
             form_key=DEFAULT_FORM_KEY,
             equipment_code=FORM_DEFINITIONS[DEFAULT_FORM_KEY]["default_equipment"],
         )
+        remember_saved_snapshot(st.session_state.payload)
 
     payload = st.session_state.payload
     previous_period_key = st.session_state.get("period_key", get_period_key(payload))
@@ -2564,6 +2707,7 @@ def main() -> None:
             year=int(payload["metadata"]["year"]),
             month=int(payload["metadata"]["month"]),
         )
+        remember_saved_snapshot(st.session_state.payload)
         st.session_state.period_key = get_period_key(st.session_state.payload)
         st.rerun()
 
@@ -2578,6 +2722,7 @@ def main() -> None:
             year=int(payload["metadata"]["year"]),
             month=int(payload["metadata"]["month"]),
         )
+        remember_saved_snapshot(st.session_state.payload)
         st.session_state.period_key = get_period_key(st.session_state.payload)
         st.rerun()
 
@@ -2593,6 +2738,7 @@ def main() -> None:
             year=int(payload["metadata"]["year"]),
             month=int(payload["metadata"]["month"]),
         )
+        remember_saved_snapshot(st.session_state.payload)
         st.session_state.period_key = current_period_key
         st.rerun()
 
