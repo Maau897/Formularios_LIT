@@ -1078,18 +1078,18 @@ def build_change_log_entry(previous_payload: dict[str, Any], current_payload: di
                     continue
                 old_display = format_change_log_item(current_payload, metric, previous_value)
                 new_display = format_change_log_item(current_payload, metric, current_value)
-                items.append(f"Dia {day} {metric_label} {slot_label}: {old_display} -> {new_display}")
+                items.append(f"Cambio: Dia {day} {metric_label} {slot_label}: {old_display} -> {new_display}")
 
         previous_verified = str(previous_record.get("verified_by", "")).strip()
         current_verified = str(current_record.get("verified_by", "")).strip()
         if previous_verified and previous_verified != current_verified:
-            items.append(f"Dia {day} Verifico: {previous_verified} -> {current_verified or 'vacio'}")
+            items.append(f"Cambio: Dia {day} Verifico: {previous_verified} -> {current_verified or 'vacio'}")
 
         previous_date = str(previous_record.get("recorded_on", "")).strip()
         current_date = str(current_record.get("recorded_on", "")).strip()
         if previous_date and previous_date != current_date:
             items.append(
-                f"Dia {day} Fecha de verificacion: {normalize_excel_date(previous_date)} -> {normalize_excel_date(current_date)}"
+                f"Cambio: Dia {day} Fecha de verificacion: {normalize_excel_date(previous_date)} -> {normalize_excel_date(current_date)}"
             )
 
     if not items:
