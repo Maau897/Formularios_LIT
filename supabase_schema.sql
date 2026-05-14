@@ -19,3 +19,21 @@ create index if not exists idx_formularios_periodos_lookup
 
 create index if not exists idx_formularios_periodos_period
     on formularios_periodos (year desc, month desc);
+
+create table if not exists formularios_auditoria (
+    id_evento bigserial primary key,
+    email text not null,
+    accion text not null,
+    detalle text,
+    form_key text,
+    equipment_code text,
+    month integer,
+    year integer,
+    created_at timestamptz not null default now()
+);
+
+create index if not exists idx_formularios_auditoria_created_at
+    on formularios_auditoria (created_at desc);
+
+create index if not exists idx_formularios_auditoria_email
+    on formularios_auditoria (email);

@@ -19,6 +19,7 @@ class SupabaseUsersConfig:
     key: str
     enabled: bool = False
     table_name: str = "usuarios_app"
+    audit_table_name: str = "formularios_auditoria"
 
 
 _CONFIG = SupabaseUsersConfig(url="", key="", enabled=False)
@@ -31,6 +32,7 @@ def configure_supabase_users(
     key: str | None,
     enabled: bool = False,
     table_name: str = "usuarios_app",
+    audit_table_name: str = "formularios_auditoria",
 ) -> None:
     global _CONFIG, _CLIENT
     _CONFIG = SupabaseUsersConfig(
@@ -38,6 +40,7 @@ def configure_supabase_users(
         key=(key or "").strip(),
         enabled=bool(enabled and url and key),
         table_name=table_name,
+        audit_table_name=audit_table_name,
     )
     _CLIENT = None
 
@@ -61,6 +64,10 @@ def _client() -> Client:
 
 def _table():
     return _client().table(_CONFIG.table_name)
+
+
+def _audit_table():
+    return _client().table(_CONFIG.audit_table_name)
 
 
 def _hash_password(password: str) -> str:
@@ -151,6 +158,46 @@ def aprobar_usuario(id_usuario: int, rol: str) -> None:
 def actualizar_rol_usuario(id_usuario: int, rol: str) -> None:
     es_admin = rol == "admin"
     _table().update({"rol": rol, "es_admin": es_admin}).eq("id_usuario", id_usuario).execute()
+
+
+def eliminar_usuario(id_usuario: int) -> None:
+    _table().delete().eq("id_usuario", id_usuario).execute()
+
+
+def registrar_evento_auditoria(
+    *,
+    email: str,
+    accion: str,
+    detalle: str = "",
+    form_key: str = "",
+    equipment_code: str = "",
+    month: int | None = None,
+    year: int | None = None,
+) -> None:
+    _audit_table().insert(
+        {
+            "email": email.strip().lower(),
+            "accion": accion.strip(),
+            "detalle": detalle.strip(),
+            "form_key": form_key.strip() or None,
+            "equipment_code": equipment_code.strip() or None,
+            "month": month,
+            "year": year,
+        }
+    ).execute()
+
+
+def listar_eventos_auditoria(limit: int = 100) -> list[dict]:
+    rows = (
+        _audit_table()
+        .select("id_evento,email,accion,detalle,form_key,equipment_code,month,year,created_at")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+        or []
+    )
+    return rows
 
 
 def crear_admin_inicial(email: str, password: str) -> None:

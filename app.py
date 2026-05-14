@@ -28,15 +28,17 @@ from openpyxl.utils.units import pixels_to_EMU
 from PIL import Image as PILImage
 from supabase_users import (
     aprobar_usuario,
+    actualizar_rol_usuario,
     autenticar_usuario,
     configure_supabase_users,
     crear_admin_inicial,
-    get_users_backend_label,
+    eliminar_usuario,
+    listar_eventos_auditoria,
     listar_usuarios,
+    registrar_evento_auditoria,
     obtener_usuarios_pendientes,
     registrar_usuario,
     supabase_users_enabled,
-    actualizar_rol_usuario,
 )
 from supabase_storage import (
     configure_supabase_storage,
@@ -44,7 +46,6 @@ from supabase_storage import (
     download_signature_bytes,
     get_signatures_storage_cache_key,
     get_templates_storage_cache_key,
-    get_storage_backend_label,
     list_signature_assets as list_remote_signature_assets,
     load_period_payload as load_remote_period_payload,
     save_period_payload as save_remote_period_payload,
@@ -260,6 +261,7 @@ def configure_users_backend() -> None:
         key=str(get_config_value("supabase_key", "SUPABASE_KEY", "")),
         enabled=as_bool(get_config_value("use_supabase_users", "USE_SUPABASE_USERS", False)),
         table_name=str(get_config_value("supabase_users_table", "SUPABASE_USERS_TABLE", "usuarios_app")),
+        audit_table_name=str(get_config_value("supabase_audit_table", "SUPABASE_AUDIT_TABLE", "formularios_auditoria")),
     )
 
     admin_email = str(get_config_value("admin_email", "ADMIN_EMAIL", "")).strip()
@@ -307,6 +309,40 @@ def current_user_role() -> str:
     return str(st.session_state.get("rol_usuario", "captura"))
 
 
+def log_activity(accion: str, detalle: str = "", payload: dict[str, Any] | None = None) -> None:
+    if not supabase_users_enabled():
+        return
+
+    form_key = ""
+    equipment_code = ""
+    month: int | None = None
+    year: int | None = None
+    target_payload = payload or st.session_state.get("payload")
+    if isinstance(target_payload, dict):
+        metadata = target_payload.get("metadata", {})
+        form_key = str(metadata.get("form_key", "")).strip()
+        equipment_code = str(metadata.get("equipment_code", "")).strip()
+        try:
+            month = int(metadata.get("month"))
+            year = int(metadata.get("year"))
+        except (TypeError, ValueError):
+            month = None
+            year = None
+
+    try:
+        registrar_evento_auditoria(
+            email=str(st.session_state.get("usuario_email", "")).strip(),
+            accion=accion,
+            detalle=detalle,
+            form_key=form_key,
+            equipment_code=equipment_code,
+            month=month,
+            year=year,
+        )
+    except Exception:
+        pass
+
+
 def can_edit_sensitive_configuration() -> bool:
     return current_user_role() in SENSITIVE_EDITOR_ROLES
 
@@ -329,10 +365,9 @@ def can_export_period() -> bool:
 
 def render_auth_screen() -> None:
     st.title("Acceso al sistema")
-    st.caption(f"Persistencia de usuarios: {get_users_backend_label()}")
 
     if not supabase_users_enabled():
-        st.error("La autenticacion con Supabase no esta configurada en esta app.")
+        st.error("La autenticacion no esta configurada en esta app.")
         st.stop()
 
     login_tab, register_tab = st.tabs(["Iniciar sesion", "Crear cuenta"])
@@ -348,6 +383,7 @@ def render_auth_screen() -> None:
                     st.session_state["usuario_email"] = result["email"]
                     st.session_state["es_admin"] = result["es_admin"]
                     st.session_state["rol_usuario"] = result.get("rol", "captura")
+                    log_activity("inicio_sesion", "Ingreso a la app")
                     st.rerun()
                 else:
                     st.error(result["mensaje"])
@@ -382,9 +418,10 @@ def render_user_admin_sidebar() -> None:
         return
 
     st.sidebar.divider()
-    st.sidebar.subheader("Aprobacion de usuarios")
+    st.sidebar.subheader("Administracion")
     try:
         pending_users = obtener_usuarios_pendientes()
+        st.sidebar.markdown("**Solicitudes pendientes**")
         if pending_users:
             for user_id, email, registered_at in pending_users:
                 st.sidebar.write(f"{email} - {registered_at}")
@@ -397,13 +434,15 @@ def render_user_admin_sidebar() -> None:
                 )
                 if st.sidebar.button("Aprobar", key=f"approve_{user_id}", use_container_width=True):
                     aprobar_usuario(user_id, approval_role)
+                    log_activity("aprobar_usuario", f"{email} -> {approval_role}")
                     st.sidebar.success(f"Usuario {email} aprobado.")
                     st.rerun()
         else:
             st.sidebar.caption("No hay usuarios pendientes.")
 
-        st.sidebar.subheader("Roles activos")
+        st.sidebar.markdown("**Roles activos**")
         approved_users = [row for row in listar_usuarios() if row[2] == 1]
+        admin_count = sum(1 for row in approved_users if row[3] == 1)
         if approved_users:
             for user_id, email, _, _, role, _ in approved_users:
                 new_role = st.sidebar.selectbox(
@@ -415,10 +454,47 @@ def render_user_admin_sidebar() -> None:
                 )
                 if st.sidebar.button("Actualizar rol", key=f"update_role_{user_id}", use_container_width=True):
                     actualizar_rol_usuario(user_id, new_role)
+                    log_activity("actualizar_rol", f"{email} -> {new_role}")
                     st.sidebar.success(f"Rol de {email} actualizado a {new_role}.")
                     st.rerun()
+                can_delete_user = email != str(st.session_state.get("usuario_email", "")).strip().lower()
+                would_remove_last_admin = role == "admin" and admin_count <= 1
+                if st.sidebar.button("Quitar acceso", key=f"delete_user_{user_id}", use_container_width=True):
+                    if not can_delete_user:
+                        st.sidebar.warning("No puedes quitar tu propio acceso desde aqui.")
+                    elif would_remove_last_admin:
+                        st.sidebar.warning("No puedes quitar al ultimo admin activo.")
+                    else:
+                        eliminar_usuario(user_id)
+                        log_activity("quitar_acceso", email)
+                        st.sidebar.success(f"Se quito el acceso de {email}.")
+                        st.rerun()
         else:
             st.sidebar.caption("No hay usuarios aprobados para administrar.")
+
+        with st.sidebar.expander("Historial de actividad", expanded=False):
+            try:
+                eventos = listar_eventos_auditoria(limit=40)
+                if eventos:
+                    for evento in eventos:
+                        marca_tiempo = str(evento.get("created_at", "")).replace("T", " ").replace("+00:00", " UTC")
+                        accion = str(evento.get("accion", "")).replace("_", " ").capitalize()
+                        email = str(evento.get("email", ""))
+                        detalle = str(evento.get("detalle", "")).strip()
+                        contexto = []
+                        if evento.get("form_key"):
+                            contexto.append(str(evento["form_key"]))
+                        if evento.get("equipment_code"):
+                            contexto.append(str(evento["equipment_code"]))
+                        if evento.get("year") and evento.get("month"):
+                            contexto.append(f"{int(evento['year'])}-{int(evento['month']):02d}")
+                        context_label = " | ".join(contexto)
+                        st.write(f"{marca_tiempo} - {email}")
+                        st.caption(f"{accion}{' | ' + detalle if detalle else ''}{' | ' + context_label if context_label else ''}")
+                else:
+                    st.caption("Sin actividad registrada todavia.")
+            except Exception:
+                st.caption("El historial aun no esta disponible.")
     except Exception as exc:
         st.sidebar.error(f"No se pudo cargar la administracion de usuarios: {exc}")
 
@@ -1108,7 +1184,6 @@ def render_sidebar(
     form_keys: list[str],
     equipment_codes: list[str],
 ) -> tuple[str, str]:
-    supabase_enabled, supabase_status = get_supabase_status()
     st.sidebar.title("Formatos")
     st.sidebar.write(f"Sesion: `{st.session_state.get('usuario_email', '')}`")
     st.sidebar.write(f"Perfil: `{st.session_state.get('rol_usuario', 'captura')}`")
@@ -1133,18 +1208,11 @@ def render_sidebar(
         key="sidebar_equipment",
     )
     st.sidebar.caption(payload["metadata"]["form_label"])
-    st.sidebar.write(f"Persistencia: `{supabase_status}`")
-    st.sidebar.write(f"Backend de guardado: `{get_storage_backend_label()}`")
-    st.sidebar.write(f"Plantilla detectada: `{get_form_definition(payload['metadata']['form_key'])['source_file']}`")
     st.sidebar.write(
         f"Mes de trabajo: `{MONTHS[payload['metadata']['month']]} {payload['metadata']['year']}`"
     )
     st.sidebar.write(f"Laboratorio: `{payload['metadata']['laboratory']}`")
     st.sidebar.write(f"Equipo / instrumento: `{payload['metadata']['equipment_name']}`")
-    st.sidebar.write(f"Marca: `{payload['metadata']['brand']}`")
-    st.sidebar.write(f"Modelo: `{payload['metadata']['model']}`")
-    st.sidebar.write(f"Serie: `{payload['metadata']['serial_number']}`")
-    st.sidebar.write(f"Inventario / código: `{payload['metadata']['inventory_code']}`")
     render_user_admin_sidebar()
     return selected_form_key, selected_equipment
 
@@ -2384,7 +2452,6 @@ def render_actions(payload: dict[str, Any]) -> None:
     st.subheader("5. Guardado y exportacion")
     allow_daily_edits = can_edit_daily_records()
     allow_export = can_export_period()
-    storage_label = get_storage_backend_label()
     errors = validate_payload(payload)
     if errors:
         st.warning("Hay datos pendientes antes de exportar.")
@@ -2399,14 +2466,17 @@ def render_actions(payload: dict[str, Any]) -> None:
     if save_col.button("Guardar borrador", use_container_width=True, disabled=not allow_daily_edits):
         try:
             saved_backend = save_payload(payload)
-            if saved_backend == storage_label:
-                st.success(f"Se guardo el borrador en {saved_backend}.")
+            log_activity(
+                "guardar_borrador",
+                "Respaldo local" if saved_backend == "Local JSON" else "Guardado principal",
+                payload,
+            )
+            if saved_backend == "Local JSON":
+                st.warning("Se guardo un respaldo local del borrador.")
             else:
-                st.warning(
-                    f"El guardado remoto no estuvo disponible. Se guardo el borrador en {saved_backend} como respaldo."
-                )
+                st.success("Se guardo el borrador.")
         except Exception as exc:
-            st.error(f"No se pudo guardar el borrador en {storage_label}: {exc}")
+            st.error(f"No se pudo guardar el borrador: {exc}")
 
     if export_col.button("Preparar Excel", use_container_width=True, disabled=not allow_export):
         if errors:
@@ -2417,6 +2487,7 @@ def render_actions(payload: dict[str, Any]) -> None:
         except Exception:
             pass
         excel_file = populate_template(payload)
+        log_activity("exportar_excel", "Genero el archivo Excel", payload)
         form_definition = get_form_definition(payload["metadata"]["form_key"])
         form_code = form_definition["source_file"].split()[0].replace(".xlsx", "")
         filename = (
@@ -2431,6 +2502,7 @@ def render_actions(payload: dict[str, Any]) -> None:
         )
 
     if reset_col.button("Limpiar periodo", use_container_width=True, disabled=not allow_daily_edits):
+        log_activity("limpiar_periodo", "Restablecio el periodo actual", payload)
         current_period_key = get_period_key(payload)
         clear_period_widget_state(current_period_key)
         st.session_state.payload = build_default_payload(
