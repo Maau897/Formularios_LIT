@@ -12,6 +12,7 @@ import shutil
 import time
 from typing import Any
 import unicodedata
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 try:
@@ -214,6 +215,7 @@ DEFAULT_EQUIPMENT_CODE = FORM_DEFINITIONS[DEFAULT_FORM_KEY]["default_equipment"]
 ROLES_USUARIO = ["captura", "responsable", "auditor", "calidad", "admin"]
 SENSITIVE_EDITOR_ROLES = {"calidad", "admin"}
 AUTOSAVE_DEBOUNCE_SECONDS = 3.0
+LOCAL_TIMEZONE = ZoneInfo("America/Mexico_City")
 
 
 @dataclass
@@ -343,6 +345,23 @@ def log_activity(accion: str, detalle: str = "", payload: dict[str, Any] | None 
         )
     except Exception:
         pass
+
+
+def get_local_now() -> datetime:
+    return datetime.now(LOCAL_TIMEZONE)
+
+
+def format_local_timestamp(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=LOCAL_TIMEZONE)
+        return parsed.astimezone(LOCAL_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return text
 
 
 def can_edit_sensitive_configuration() -> bool:
@@ -479,7 +498,7 @@ def render_user_admin_sidebar() -> None:
                 eventos = listar_eventos_auditoria(limit=40)
                 if eventos:
                     for evento in eventos:
-                        marca_tiempo = str(evento.get("created_at", "")).replace("T", " ").replace("+00:00", " UTC")
+                        marca_tiempo = format_local_timestamp(str(evento.get("created_at", "")))
                         accion = str(evento.get("accion", "")).replace("_", " ").capitalize()
                         email = str(evento.get("email", ""))
                         detalle = str(evento.get("detalle", "")).strip()
@@ -1077,7 +1096,7 @@ def build_change_log_entry(previous_payload: dict[str, Any], current_payload: di
         return None
 
     return {
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "timestamp": get_local_now().isoformat(timespec="seconds"),
         "user": str(st.session_state.get("usuario_email", "")).strip(),
         "items": items,
     }
@@ -1091,8 +1110,6 @@ def compose_observations_export_text(payload: dict[str, Any]) -> str:
 
     audit_lines: list[str] = []
     for entry in change_log[-6:]:
-        timestamp = str(entry.get("timestamp", "")).replace("T", " ")
-        user = str(entry.get("user", "")).strip() or "usuario"
         items = entry.get("items", [])
         if not items:
             continue
@@ -1100,7 +1117,7 @@ def compose_observations_export_text(payload: dict[str, Any]) -> str:
         detail = "; ".join(str(item) for item in visible_items)
         if len(items) > len(visible_items):
             detail += f"; y {len(items) - len(visible_items)} cambio(s) mas"
-        audit_lines.append(f"[{timestamp}] {user}: {detail}")
+        audit_lines.append(detail)
 
     if not audit_lines:
         return base_observations
@@ -2573,7 +2590,7 @@ def maybe_autosave_payload(payload: dict[str, Any]) -> None:
     st.session_state["last_autosave_attempt_at"] = now
     try:
         saved_backend = save_payload(payload)
-        st.session_state["last_autosave_at"] = datetime.now().strftime("%H:%M:%S")
+        st.session_state["last_autosave_at"] = get_local_now().strftime("%H:%M:%S")
         st.session_state["last_autosave_backend"] = saved_backend
         st.session_state["last_autosave_error"] = ""
     except Exception as exc:
