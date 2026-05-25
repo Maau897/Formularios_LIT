@@ -1104,9 +1104,19 @@ def build_change_log_entry(previous_payload: dict[str, Any], current_payload: di
 
 def compose_observations_export_text(payload: dict[str, Any]) -> str:
     base_observations = str(payload["monthly_closure"].get("observations", "")).strip()
+    non_working_days = sorted(int(day) for day in payload.get("non_working_days", []))
     change_log = payload.get("change_log", [])
+    sections: list[str] = []
+
+    if base_observations:
+        sections.append(base_observations)
+
+    if non_working_days:
+        days_text = ", ".join(str(day) for day in non_working_days)
+        sections.append(f"* Los dias {days_text} no aplican por marcarse como no laborados.")
+
     if not change_log:
-        return base_observations
+        return "\n\n".join(sections).strip()
 
     audit_lines: list[str] = []
     for entry in change_log[-6:]:
@@ -1120,10 +1130,11 @@ def compose_observations_export_text(payload: dict[str, Any]) -> str:
         audit_lines.append(detail)
 
     if not audit_lines:
-        return base_observations
+        return "\n\n".join(sections).strip()
 
     audit_block = "Registro de correcciones:\n" + "\n".join(audit_lines)
-    return f"{base_observations}\n\n{audit_block}" if base_observations else audit_block
+    sections.append(audit_block)
+    return "\n\n".join(section for section in sections if section).strip()
 
 
 def save_payload(payload: dict[str, Any]) -> str:
