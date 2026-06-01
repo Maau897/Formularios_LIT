@@ -531,7 +531,11 @@ def coerce_factor_value(raw_value: Any) -> tuple[str, float]:
 
 
 def parse_range_bounds(label_text: str) -> tuple[float, float] | None:
-    match = re.search(r"(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)", label_text)
+    normalized_text = str(label_text).strip().lower()
+    match = re.search(
+        r"(-?\d+(?:\.\d+)?)\s*(?:-|a|to|–|—)\s*(-?\d+(?:\.\d+)?)",
+        normalized_text,
+    )
     if not match:
         return None
     return float(match.group(1)), float(match.group(2))
