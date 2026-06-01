@@ -212,6 +212,7 @@ FORM_DEFINITIONS: dict[str, dict[str, Any]] = {
 
 DEFAULT_FORM_KEY = "congeladores"
 DEFAULT_EQUIPMENT_CODE = FORM_DEFINITIONS[DEFAULT_FORM_KEY]["default_equipment"]
+EQUIPMENT_CONFIG_CACHE_VERSION = "2026-06-01-negative-range-fix"
 ROLES_USUARIO = ["captura", "responsable", "auditor", "calidad", "admin"]
 SENSITIVE_EDITOR_ROLES = {"calidad", "admin"}
 AUTOSAVE_DEBOUNCE_SECONDS = 3.0
@@ -872,7 +873,12 @@ def extract_ambient_config(sheet_name: str, worksheet: Any) -> dict[str, Any]:
 
 
 @st.cache_data(show_spinner=False)
-def load_equipment_configs(form_key: str) -> dict[str, dict[str, Any]]:
+def _load_equipment_configs_cached(
+    form_key: str,
+    templates_cache_key: str,
+    cache_version: str,
+) -> dict[str, dict[str, Any]]:
+    _ = templates_cache_key, cache_version
     workbook = load_template_workbook(form_key, data_only=True)
     equipment_configs: dict[str, dict[str, Any]] = {}
     definition = get_form_definition(form_key)
@@ -897,6 +903,14 @@ def load_equipment_configs(form_key: str) -> dict[str, dict[str, Any]]:
             equipment_configs[sheet_name]["correction_operations"] = {}
 
     return equipment_configs
+
+
+def load_equipment_configs(form_key: str) -> dict[str, dict[str, Any]]:
+    return _load_equipment_configs_cached(
+        form_key,
+        get_templates_storage_cache_key(),
+        EQUIPMENT_CONFIG_CACHE_VERSION,
+    )
 
 
 def build_default_payload(
@@ -943,6 +957,35 @@ def build_default_payload(
             "reviewed_on": today.isoformat(),
         },
     }
+
+
+def hydrate_payload_corrections(payload: dict[str, Any]) -> dict[str, Any]:
+    form_key = str(payload.get("metadata", {}).get("form_key", DEFAULT_FORM_KEY))
+    equipment_code = str(payload.get("metadata", {}).get("equipment_code", DEFAULT_EQUIPMENT_CODE))
+    equipment_config = load_equipment_configs(form_key).get(equipment_code)
+    if not equipment_config:
+        return payload
+
+    template_bands = dict(equipment_config.get("correction_bands", {}))
+    template_cells = dict(equipment_config.get("correction_cells", {}))
+    template_factors = dict(equipment_config.get("correction_factors", {}))
+    template_operations = dict(equipment_config.get("correction_operations", {}))
+
+    payload["correction_bands"] = template_bands
+    payload["correction_cells"] = template_cells
+
+    current_factors = dict(payload.get("correction_factors", {}))
+    current_operations = dict(payload.get("correction_operations", {}))
+
+    hydrated_factors: dict[str, Any] = {}
+    hydrated_operations: dict[str, str] = {}
+    for factor_key, factor_value in template_factors.items():
+        hydrated_factors[factor_key] = current_factors.get(factor_key, factor_value)
+        hydrated_operations[factor_key] = str(current_operations.get(factor_key, template_operations.get(factor_key, "+")))
+
+    payload["correction_factors"] = hydrated_factors
+    payload["correction_operations"] = hydrated_operations
+    return payload
 
 
 def ensure_data_dir() -> None:
@@ -1026,7 +1069,9 @@ def load_saved_payload(
         try:
             remote_payload = load_remote_period_payload(form_key, equipment_code, year, month)
             if remote_payload:
-                return merge_payload_with_saved_data(remote_payload, equipment_code=equipment_code, form_key=form_key)
+                return hydrate_payload_corrections(
+                    merge_payload_with_saved_data(remote_payload, equipment_code=equipment_code, form_key=form_key)
+                )
         except Exception:
             pass
 
@@ -1034,12 +1079,14 @@ def load_saved_payload(
     if not data_file.exists():
         default_payload["metadata"]["year"] = year
         default_payload["metadata"]["month"] = month
-        return default_payload
+        return hydrate_payload_corrections(default_payload)
 
     with data_file.open("r", encoding="utf-8") as file:
         data = json.load(file)
 
-    return merge_payload_with_saved_data(data, equipment_code=equipment_code, form_key=form_key)
+    return hydrate_payload_corrections(
+        merge_payload_with_saved_data(data, equipment_code=equipment_code, form_key=form_key)
+    )
 
 
 def get_comparable_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -2734,6 +2781,8 @@ def main() -> None:
         )
         remember_saved_snapshot(st.session_state.payload)
 
+    payload = st.session_state.payload
+    st.session_state.payload = hydrate_payload_corrections(payload)
     payload = st.session_state.payload
     previous_period_key = st.session_state.get("period_key", get_period_key(payload))
     equipment_configs = load_equipment_configs(payload["metadata"]["form_key"])
