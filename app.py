@@ -213,6 +213,7 @@ FORM_DEFINITIONS: dict[str, dict[str, Any]] = {
 DEFAULT_FORM_KEY = "congeladores"
 DEFAULT_EQUIPMENT_CODE = FORM_DEFINITIONS[DEFAULT_FORM_KEY]["default_equipment"]
 EQUIPMENT_CONFIG_CACHE_VERSION = "2026-06-01-negative-range-fix"
+TEMPERATURE_DECIMAL_PLACES = 5
 ROLES_USUARIO = ["captura", "responsable", "auditor", "calidad", "admin"]
 SENSITIVE_EDITOR_ROLES = {"calidad", "admin"}
 AUTOSAVE_DEBOUNCE_SECONDS = 3.0
@@ -1350,6 +1351,13 @@ def parse_measurement_number(raw_value: str) -> float | None:
     return numeric * 100 if 0 < abs(numeric) <= 1 else numeric
 
 
+def format_decimal_value(value: float, decimal_places: int = TEMPERATURE_DECIMAL_PLACES) -> str:
+    formatted = f"{value:.{decimal_places}f}"
+    if "." not in formatted:
+        return formatted
+    return formatted.rstrip("0").rstrip(".")
+
+
 def format_metric_value(payload: dict[str, Any], metric: dict[str, Any], value: str) -> str:
     text = str(value or "").strip()
     if not text:
@@ -1358,6 +1366,9 @@ def format_metric_value(payload: dict[str, Any], metric: dict[str, Any], value: 
         return format_percentage_display(text)
     if is_incubator_co2_metric(payload, metric):
         return format_percentage_display(text)
+    numeric_value = parse_measurement_number(text)
+    if numeric_value is not None:
+        return format_decimal_value(numeric_value)
     return text
 
 
@@ -1585,8 +1596,8 @@ def render_configuration(payload: dict[str, Any]) -> None:
                     correction_factors[factor_key] = value_col.number_input(
                         "Factor de correccion",
                         value=float(correction_factors[factor_key]),
-                        step=0.01,
-                        format="%.2f",
+                        step=0.00001,
+                        format="%.5f",
                         key=f"factor_{period_key}_{factor_key}",
                         disabled=not allow_sensitive_edits,
                     )
@@ -1607,8 +1618,8 @@ def render_configuration(payload: dict[str, Any]) -> None:
                 correction_factors[factor_key] = value_col.number_input(
                     factor_value_label,
                     value=float(correction_factors[factor_key]),
-                    step=0.01,
-                    format="%.2f",
+                    step=0.00001,
+                    format="%.5f",
                     key=f"factor_{period_key}_{factor_key}",
                     disabled=not allow_sensitive_edits,
                 )
@@ -1709,7 +1720,7 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                         f"{metric_label} {label}",
                         key=input_key,
                         disabled=not allow_daily_edits,
-                        placeholder="-20.3" if metric["unit"] == "°C" else "",
+                        placeholder="-20.12345" if metric["unit"] == "°C" else "",
                     )
                     metric_values.append(value)
                     if metric.get("corrected", False):
@@ -2638,12 +2649,12 @@ def calculate_corrected_temperature(
             factor_key = key
             break
     if factor_key is None or factor_key not in correction_factors:
-        return f"{measured:.2f}"
+        return format_decimal_value(measured)
 
     factor = float(correction_factors[factor_key])
     operation = correction_operations[factor_key]
     corrected = measured + factor if operation == "+" else measured - factor
-    return f"{corrected:.2f}"
+    return format_decimal_value(corrected)
 
 
 def maybe_autosave_payload(payload: dict[str, Any]) -> None:
