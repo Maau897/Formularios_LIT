@@ -1569,29 +1569,43 @@ def render_configuration(payload: dict[str, Any]) -> None:
 
 def render_non_working_days(payload: dict[str, Any]) -> None:
     st.subheader("2. Dias no laborados")
-    st.caption("Marca manualmente los dias que no aplican para la toma. Cada boton activa o desactiva el dia.")
+    st.caption("Marca manualmente los dias que no aplican para la toma. En telefono y tableta se muestran como fichas para que sea mas facil seleccionarlos.")
     allow_schedule_edits = can_edit_schedule()
     if not allow_schedule_edits:
         st.caption("Este apartado esta en solo lectura para tu perfil.")
     period_key = st.session_state.get("period_key", get_period_key(payload))
-    selected_days = set(int(day) for day in payload["non_working_days"])
     days = list(range(1, 32))
-    for week_start in range(0, len(days), 7):
-        cols = st.columns(7)
-        for offset, day in enumerate(days[week_start:week_start + 7]):
-            checkbox_key = f"non_working_{period_key}_{day}"
-            if checkbox_key not in st.session_state:
-                st.session_state[checkbox_key] = day in selected_days
-            is_selected = cols[offset].checkbox(
-                f"{day}",
-                key=checkbox_key,
-                disabled=not allow_schedule_edits,
-            )
-            if is_selected:
-                selected_days.add(day)
-            else:
-                selected_days.discard(day)
-    payload["non_working_days"] = sorted(selected_days)
+    selector_key = f"non_working_days_{period_key}"
+    if selector_key not in st.session_state:
+        st.session_state[selector_key] = list(sorted(int(day) for day in payload["non_working_days"]))
+
+    if hasattr(st, "pills"):
+        selected_days = st.pills(
+            "Selecciona dias no laborados",
+            options=days,
+            default=st.session_state[selector_key],
+            selection_mode="multi",
+            key=selector_key,
+            disabled=not allow_schedule_edits,
+        )
+    else:
+        selected_days = st.multiselect(
+            "Selecciona dias no laborados",
+            options=days,
+            default=st.session_state[selector_key],
+            key=selector_key,
+            disabled=not allow_schedule_edits,
+        )
+
+    payload["non_working_days"] = sorted(int(day) for day in (selected_days or []))
+
+    if payload["non_working_days"]:
+        st.caption(
+            "Dias marcados como no laborados: "
+            + ", ".join(str(day) for day in payload["non_working_days"])
+        )
+    else:
+        st.caption("No hay dias marcados como no laborados.")
 
     for day in range(1, 32):
         payload["daily_records"][str(day)]["active"] = day not in payload["non_working_days"]
