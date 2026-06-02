@@ -213,7 +213,7 @@ FORM_DEFINITIONS: dict[str, dict[str, Any]] = {
 DEFAULT_FORM_KEY = "congeladores"
 DEFAULT_EQUIPMENT_CODE = FORM_DEFINITIONS[DEFAULT_FORM_KEY]["default_equipment"]
 EQUIPMENT_CONFIG_CACHE_VERSION = "2026-06-01-negative-range-fix"
-TEMPERATURE_DECIMAL_PLACES = 5
+TEMPERATURE_DECIMAL_PLACES = 3
 ROLES_USUARIO = ["captura", "responsable", "auditor", "calidad", "admin"]
 SENSITIVE_EDITOR_ROLES = {"calidad", "admin"}
 AUTOSAVE_DEBOUNCE_SECONDS = 3.0
@@ -1596,8 +1596,8 @@ def render_configuration(payload: dict[str, Any]) -> None:
                     correction_factors[factor_key] = value_col.number_input(
                         "Factor de correccion",
                         value=float(correction_factors[factor_key]),
-                        step=0.00001,
-                        format="%.5f",
+                        step=0.001,
+                        format="%.3f",
                         key=f"factor_{period_key}_{factor_key}",
                         disabled=not allow_sensitive_edits,
                     )
@@ -1618,8 +1618,8 @@ def render_configuration(payload: dict[str, Any]) -> None:
                 correction_factors[factor_key] = value_col.number_input(
                     factor_value_label,
                     value=float(correction_factors[factor_key]),
-                    step=0.00001,
-                    format="%.5f",
+                    step=0.001,
+                    format="%.3f",
                     key=f"factor_{period_key}_{factor_key}",
                     disabled=not allow_sensitive_edits,
                 )
@@ -1720,7 +1720,7 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                         f"{metric_label} {label}",
                         key=input_key,
                         disabled=not allow_daily_edits,
-                        placeholder="-20.12345" if metric["unit"] == "°C" else "",
+                        placeholder="-20.123" if metric["unit"] == "°C" else "",
                     )
                     metric_values.append(value)
                     if metric.get("corrected", False):
