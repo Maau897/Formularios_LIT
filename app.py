@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from calendar import monthrange
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 import json
@@ -12,8 +12,10 @@ import shutil
 import time
 from typing import Any
 import unicodedata
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 import streamlit as st
 try:
     from dotenv import load_dotenv
@@ -49,8 +51,12 @@ from supabase_storage import (
     get_signatures_storage_cache_key,
     get_templates_storage_cache_key,
     list_signature_assets as list_remote_signature_assets,
+    list_periods as list_remote_periods,
+    list_traceability_entries as list_remote_traceability_entries,
     load_period_payload as load_remote_period_payload,
     save_period_payload as save_remote_period_payload,
+    save_traceability_entry as save_remote_traceability_entry,
+    delete_traceability_entry as delete_remote_traceability_entry,
     signatures_storage_enabled,
     supabase_storage_enabled,
     templates_storage_enabled,
@@ -63,6 +69,7 @@ BASE_DIR = Path(__file__).resolve().parent
 TEMPLATE_PATH = BASE_DIR / "F-LIT-21-03.xlsx"
 WORKING_TEMPLATE_PATH = BASE_DIR / "template_cong1.xlsx"
 DATA_DIR = BASE_DIR / "data"
+TRACEABILITY_DIR = DATA_DIR / "trazabilidad"
 SIGNATURES_DIR = BASE_DIR / "firmas digitales"
 
 MONTHS = {
@@ -85,6 +92,19 @@ TIME_SLOTS = [
     "11:00 - 14:00",
     "15:00 - 18:00",
 ]
+
+TRACEABILITY_TYPES = {
+    "mantenimiento": "Mantenimiento",
+    "calibracion": "Calibracion",
+    "calificacion": "Calificacion",
+    "validacion_aplicacion": "Validacion de la aplicacion",
+}
+
+TRACEABILITY_STATUSES = {
+    "programado": "Programado",
+    "realizado": "Realizado",
+    "no_aplica": "No aplica",
+}
 
 DAY_BLOCK_START_COLUMNS = {
     day: 5 + ((day - 1) * 3)
@@ -212,7 +232,7 @@ FORM_DEFINITIONS: dict[str, dict[str, Any]] = {
 
 DEFAULT_FORM_KEY = "congeladores"
 DEFAULT_EQUIPMENT_CODE = FORM_DEFINITIONS[DEFAULT_FORM_KEY]["default_equipment"]
-EQUIPMENT_CONFIG_CACHE_VERSION = "2026-06-01-negative-range-fix"
+EQUIPMENT_CONFIG_CACHE_VERSION = "2026-06-03-admin-range-editing"
 TEMPERATURE_DECIMAL_PLACES = 3
 ROLES_USUARIO = ["captura", "responsable", "auditor", "calidad", "admin"]
 SENSITIVE_EDITOR_ROLES = {"calidad", "admin"}
@@ -370,6 +390,10 @@ def can_edit_sensitive_configuration() -> bool:
     return current_user_role() in SENSITIVE_EDITOR_ROLES
 
 
+def can_edit_correction_settings() -> bool:
+    return current_user_role() == "admin"
+
+
 def can_edit_schedule() -> bool:
     return current_user_role() in {"responsable", "calidad", "admin"}
 
@@ -379,6 +403,10 @@ def can_edit_daily_records() -> bool:
 
 
 def can_close_period() -> bool:
+    return current_user_role() in {"responsable", "calidad", "admin"}
+
+
+def can_manage_traceability() -> bool:
     return current_user_role() in {"responsable", "calidad", "admin"}
 
 
@@ -543,6 +571,29 @@ def parse_range_bounds(label_text: str) -> tuple[float, float] | None:
     return float(match.group(1)), float(match.group(2))
 
 
+def infer_range_separator(label_text: str) -> str:
+    normalized_text = str(label_text).strip().lower()
+    if " a " in normalized_text:
+        return "a"
+    if " to " in normalized_text:
+        return "to"
+    return "-"
+
+
+def format_range_number(value: float) -> str:
+    return format_decimal_value(float(value))
+
+
+def build_range_label(min_value: float, max_value: float, separator: str = "-") -> str:
+    left = format_range_number(min_value)
+    right = format_range_number(max_value)
+    if separator == "a":
+        return f"{left} a {right}"
+    if separator == "to":
+        return f"{left} to {right}"
+    return f"{left} - {right}"
+
+
 def find_value_after_label(
     worksheet: Any,
     label: str,
@@ -654,8 +705,15 @@ def extract_inline_corrections(
     worksheet: Any,
     range_row: int,
     factor_row: int,
-) -> tuple[dict[str, dict[str, Any]], dict[str, str], dict[str, float], dict[str, str]]:
+) -> tuple[
+    dict[str, dict[str, Any]],
+    dict[str, str],
+    dict[str, str],
+    dict[str, str],
+    dict[str, float],
+]:
     correction_bands: dict[str, dict[str, Any]] = {}
+    correction_range_cells: dict[str, str] = {}
     correction_cells: dict[str, str] = {}
     correction_operations: dict[str, str] = {}
     correction_factors: dict[str, float] = {}
@@ -669,7 +727,7 @@ def extract_inline_corrections(
             break
 
     if range_header_col is None:
-        return correction_bands, correction_cells, correction_operations, correction_factors
+        return correction_bands, correction_range_cells, correction_cells, correction_operations, correction_factors
 
     for column in range(range_header_col + 1, worksheet.max_column + 1):
         range_value = worksheet.cell(range_row, column).value
@@ -691,16 +749,28 @@ def extract_inline_corrections(
         key = f"range_{range_index}"
         range_index += 1
         operation, numeric_value = coerce_factor_value(factor_value)
-        correction_bands[key] = {"label": label_text, "min": min_value, "max": max_value}
+        correction_bands[key] = {
+            "label": label_text,
+            "min": min_value,
+            "max": max_value,
+            "separator": infer_range_separator(label_text),
+        }
+        correction_range_cells[key] = worksheet.cell(range_row, column).coordinate
         correction_cells[key] = worksheet.cell(factor_row, column).coordinate
         correction_operations[key] = operation
         correction_factors[key] = numeric_value
 
-    return correction_bands, correction_cells, correction_operations, correction_factors
+    return correction_bands, correction_range_cells, correction_cells, correction_operations, correction_factors
 
 
 def extract_cold_equipment_config(sheet_name: str, worksheet: Any) -> dict[str, Any]:
-    correction_bands, correction_cells, correction_operations, correction_factors = extract_inline_corrections(
+    (
+        correction_bands,
+        correction_range_cells,
+        correction_cells,
+        correction_operations,
+        correction_factors,
+    ) = extract_inline_corrections(
         worksheet,
         range_row=6,
         factor_row=7,
@@ -731,6 +801,7 @@ def extract_cold_equipment_config(sheet_name: str, worksheet: Any) -> dict[str, 
             "maximum_label": find_cell_after_label(worksheet, "Máxima", [8]),
         },
         "correction_bands": correction_bands,
+        "correction_range_cells": correction_range_cells,
         "correction_cells": correction_cells,
         "correction_factors": correction_factors,
         "correction_operations": correction_operations,
@@ -738,7 +809,13 @@ def extract_cold_equipment_config(sheet_name: str, worksheet: Any) -> dict[str, 
 
 
 def extract_incubator_config(sheet_name: str, worksheet: Any) -> dict[str, Any]:
-    correction_bands, correction_cells, correction_operations, correction_factors = extract_inline_corrections(
+    (
+        correction_bands,
+        correction_range_cells,
+        correction_cells,
+        correction_operations,
+        correction_factors,
+    ) = extract_inline_corrections(
         worksheet,
         range_row=6,
         factor_row=7,
@@ -775,6 +852,7 @@ def extract_incubator_config(sheet_name: str, worksheet: Any) -> dict[str, Any]:
             "secondary_maximum_label": find_cell_after_label(worksheet, "Máxima", [9]),
         },
         "correction_bands": correction_bands,
+        "correction_range_cells": correction_range_cells,
         "correction_cells": correction_cells,
         "correction_factors": correction_factors,
         "correction_operations": correction_operations,
@@ -820,6 +898,7 @@ def extract_ambient_config(sheet_name: str, worksheet: Any) -> dict[str, Any]:
         or find_cell_after_label(worksheet, "% Humedad Relativa", [9])
     )
     correction_bands: dict[str, dict[str, Any]] = {}
+    correction_range_cells: dict[str, str] = {}
     correction_cells: dict[str, str] = {}
     operations: dict[str, str] = {}
     factors: dict[str, float] = {}
@@ -842,7 +921,13 @@ def extract_ambient_config(sheet_name: str, worksheet: Any) -> dict[str, Any]:
         op, num = coerce_factor_value(factor_value)
         operations[key] = op
         factors[key] = num
-        correction_bands[key] = {"label": label_text, "min": min_value, "max": max_value}
+        correction_bands[key] = {
+            "label": label_text,
+            "min": min_value,
+            "max": max_value,
+            "separator": infer_range_separator(label_text),
+        }
+        correction_range_cells[key] = worksheet.cell(7, column).coordinate
         correction_cells[key] = worksheet.cell(8, column).coordinate
     return {
         "sheet_name": sheet_name,
@@ -867,6 +952,7 @@ def extract_ambient_config(sheet_name: str, worksheet: Any) -> dict[str, Any]:
             "maximum_label": find_cell_after_label(worksheet, "Máxima", [9]),
         },
         "correction_bands": correction_bands,
+        "correction_range_cells": correction_range_cells,
         "correction_cells": correction_cells,
         "correction_factors": factors,
         "correction_operations": operations,
@@ -899,6 +985,7 @@ def _load_equipment_configs_cached(
 
         if not definition["supports_corrections"]:
             equipment_configs[sheet_name]["correction_bands"] = {}
+            equipment_configs[sheet_name]["correction_range_cells"] = {}
             equipment_configs[sheet_name]["correction_cells"] = {}
             equipment_configs[sheet_name]["correction_factors"] = {}
             equipment_configs[sheet_name]["correction_operations"] = {}
@@ -944,6 +1031,7 @@ def build_default_payload(
         },
         "metadata_cells": dict(equipment_config.get("metadata_cells", {})),
         "correction_bands": dict(equipment_config.get("correction_bands", {})),
+        "correction_range_cells": dict(equipment_config.get("correction_range_cells", {})),
         "correction_cells": dict(equipment_config.get("correction_cells", {})),
         "correction_factors": dict(equipment_config["correction_factors"]),
         "correction_operations": dict(equipment_config["correction_operations"]),
@@ -968,11 +1056,27 @@ def hydrate_payload_corrections(payload: dict[str, Any]) -> dict[str, Any]:
         return payload
 
     template_bands = dict(equipment_config.get("correction_bands", {}))
+    template_range_cells = dict(equipment_config.get("correction_range_cells", {}))
     template_cells = dict(equipment_config.get("correction_cells", {}))
     template_factors = dict(equipment_config.get("correction_factors", {}))
     template_operations = dict(equipment_config.get("correction_operations", {}))
 
-    payload["correction_bands"] = template_bands
+    current_bands = dict(payload.get("correction_bands", {}))
+    hydrated_bands: dict[str, dict[str, Any]] = {}
+    for factor_key, template_band in template_bands.items():
+        current_band = current_bands.get(factor_key, {})
+        min_value = float(current_band.get("min", template_band.get("min", 0)))
+        max_value = float(current_band.get("max", template_band.get("max", 0)))
+        separator = str(current_band.get("separator", template_band.get("separator", infer_range_separator(str(template_band.get("label", "")))))).strip() or "-"
+        hydrated_bands[factor_key] = {
+            "label": build_range_label(min_value, max_value, separator),
+            "min": min_value,
+            "max": max_value,
+            "separator": separator,
+        }
+
+    payload["correction_bands"] = hydrated_bands
+    payload["correction_range_cells"] = template_range_cells
     payload["correction_cells"] = template_cells
 
     current_factors = dict(payload.get("correction_factors", {}))
@@ -991,6 +1095,133 @@ def hydrate_payload_corrections(payload: dict[str, Any]) -> dict[str, Any]:
 
 def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    TRACEABILITY_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def get_traceability_file(form_key: str, equipment_code: str) -> Path:
+    ensure_data_dir()
+    safe_form = re.sub(r"[^a-z0-9_]+", "_", form_key.lower())
+    safe_equipment = re.sub(r"[^a-z0-9_]+", "_", equipment_code.lower())
+    return TRACEABILITY_DIR / f"{safe_form}_{safe_equipment}.json"
+
+
+def normalize_traceability_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    scheduled_for = str(entry.get("scheduled_for", "")).strip()
+    completed_on = str(entry.get("completed_on", "")).strip()
+    return {
+        "id": str(entry.get("id", "")).strip() or str(uuid4()),
+        "form_key": str(entry.get("form_key", "")).strip(),
+        "equipment_code": str(entry.get("equipment_code", "")).strip(),
+        "entry_type": str(entry.get("entry_type", "")).strip(),
+        "status": str(entry.get("status", "")).strip() or "programado",
+        "scheduled_for": scheduled_for,
+        "completed_on": completed_on,
+        "provider": str(entry.get("provider", "")).strip(),
+        "notes": str(entry.get("notes", "")).strip(),
+        "created_by": str(entry.get("created_by", "")).strip(),
+        "updated_by": str(entry.get("updated_by", "")).strip(),
+        "updated_at": str(entry.get("updated_at", "")).strip(),
+    }
+
+
+def list_traceability_entries(form_key: str, equipment_code: str) -> list[dict[str, Any]]:
+    ensure_data_dir()
+    if supabase_storage_enabled():
+        try:
+            return list_remote_traceability_entries(form_key, equipment_code)
+        except Exception:
+            pass
+
+    traceability_file = get_traceability_file(form_key, equipment_code)
+    if not traceability_file.exists():
+        return []
+    try:
+        data = json.loads(traceability_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    entries = [normalize_traceability_entry(entry) for entry in data if isinstance(entry, dict)]
+    entries.sort(key=lambda item: (item.get("scheduled_for") or "9999-12-31", item.get("entry_type") or ""))
+    return entries
+
+
+def save_traceability_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    ensure_data_dir()
+    normalized_entry = normalize_traceability_entry(entry)
+    normalized_entry["updated_by"] = str(st.session_state.get("usuario_email", "")).strip().lower()
+    normalized_entry["updated_at"] = datetime.now(LOCAL_TIMEZONE).isoformat()
+    if not normalized_entry["created_by"]:
+        normalized_entry["created_by"] = normalized_entry["updated_by"]
+    if supabase_storage_enabled():
+        try:
+            return save_remote_traceability_entry(normalized_entry, updated_by=normalized_entry["updated_by"])
+        except Exception:
+            pass
+
+    entries = list_traceability_entries(normalized_entry["form_key"], normalized_entry["equipment_code"])
+    updated_entries = [item for item in entries if item["id"] != normalized_entry["id"]]
+    updated_entries.append(normalized_entry)
+    updated_entries.sort(key=lambda item: (item.get("scheduled_for") or "9999-12-31", item.get("entry_type") or ""))
+    get_traceability_file(normalized_entry["form_key"], normalized_entry["equipment_code"]).write_text(
+        json.dumps(updated_entries, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return normalized_entry
+
+
+def delete_traceability_entry(entry_id: str, form_key: str, equipment_code: str) -> None:
+    normalized_id = entry_id.strip()
+    if not normalized_id:
+        return
+    if supabase_storage_enabled():
+        try:
+            delete_remote_traceability_entry(normalized_id)
+            return
+        except Exception:
+            pass
+
+    entries = [item for item in list_traceability_entries(form_key, equipment_code) if item["id"] != normalized_id]
+    get_traceability_file(form_key, equipment_code).write_text(
+        json.dumps(entries, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def list_periods_for_equipment(form_key: str, equipment_code: str) -> list[dict[str, Any]]:
+    ensure_data_dir()
+    periods: list[dict[str, Any]] = []
+    if supabase_storage_enabled():
+        try:
+            rows = list_remote_periods()
+            periods = [
+                row for row in rows
+                if str(row.get("form_key", "")) == form_key and str(row.get("equipment_code", "")) == equipment_code
+            ]
+        except Exception:
+            periods = []
+    else:
+        for data_file in DATA_DIR.glob("*.json"):
+            try:
+                data = json.loads(data_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            metadata = data.get("metadata", {})
+            if str(metadata.get("form_key", "")) != form_key or str(metadata.get("equipment_code", "")) != equipment_code:
+                continue
+            try:
+                periods.append(
+                    {
+                        "form_key": form_key,
+                        "equipment_code": equipment_code,
+                        "month": int(metadata.get("month", 0)),
+                        "year": int(metadata.get("year", 0)),
+                    }
+                )
+            except (TypeError, ValueError):
+                continue
+    periods.sort(key=lambda row: (int(row["year"]), int(row["month"])))
+    return periods
 
 
 def merge_payload_with_saved_data(
@@ -1001,6 +1232,7 @@ def merge_payload_with_saved_data(
     default_payload = build_default_payload(equipment_code=equipment_code, form_key=form_key)
     default_payload["metadata"].update(data.get("metadata", {}))
     default_payload["metadata_cells"] = data.get("metadata_cells", default_payload.get("metadata_cells", {}))
+    default_payload["correction_bands"] = data.get("correction_bands", default_payload.get("correction_bands", {}))
     default_payload["correction_factors"].update(data.get("correction_factors", {}))
     default_payload["correction_operations"].update(data.get("correction_operations", {}))
     default_payload["non_working_days"] = data.get("non_working_days", [])
@@ -1419,6 +1651,7 @@ def render_configuration(payload: dict[str, Any]) -> None:
     period_key = st.session_state.get("period_key", get_period_key(payload))
     copy = get_format_specific_copy(payload)
     allow_sensitive_edits = can_edit_sensitive_configuration()
+    allow_correction_edits = can_edit_correction_settings()
 
     month_col, year_col = st.columns(2)
     metadata["month"] = month_col.selectbox(
@@ -1575,53 +1808,68 @@ def render_configuration(payload: dict[str, Any]) -> None:
         )
 
     if definition["supports_corrections"] and correction_factors:
-        st.caption("Factores de correccion editables por rango para este equipo.")
-        factor_labels = list(correction_factors.keys())
-        if is_ambient_form(payload):
-            ranges_per_row = 3
-            for start_index in range(0, len(factor_labels), ranges_per_row):
-                row_keys = factor_labels[start_index:start_index + ranges_per_row]
-                factor_cols = st.columns(len(row_keys))
-                for factor_col, factor_key in zip(factor_cols, row_keys):
-                    label = correction_bands.get(factor_key, {}).get("label", factor_key.replace("_", " ").title())
-                    factor_col.markdown(f"**{ambient_variable_name} {label}**")
-                    operation_col, value_col = factor_col.columns([1, 2])
-                    correction_operations[factor_key] = operation_col.selectbox(
-                        "Operacion",
-                        options=["+", "-"],
-                        index=0 if correction_operations[factor_key] == "+" else 1,
-                        key=f"operation_{period_key}_{factor_key}",
-                        disabled=not allow_sensitive_edits,
-                    )
-                    correction_factors[factor_key] = value_col.number_input(
-                        "Factor de correccion",
-                        value=float(correction_factors[factor_key]),
-                        step=0.001,
-                        format="%.3f",
-                        key=f"factor_{period_key}_{factor_key}",
-                        disabled=not allow_sensitive_edits,
-                    )
+        if allow_correction_edits:
+            st.caption("Rangos, operacion y factor de correccion editables para admins.")
         else:
-            factor_cols = st.columns(len(factor_labels))
-            for factor_col, factor_key in zip(factor_cols, factor_labels):
+            st.caption("Los rangos y factores de correccion se muestran en solo lectura. Solo admins pueden modificarlos.")
+        factor_labels = list(correction_factors.keys())
+        ranges_per_row = 3 if is_ambient_form(payload) else min(3, max(1, len(factor_labels)))
+        for start_index in range(0, len(factor_labels), ranges_per_row):
+            row_keys = factor_labels[start_index:start_index + ranges_per_row]
+            factor_cols = st.columns(len(row_keys))
+            for factor_col, factor_key in zip(factor_cols, row_keys):
+                band = dict(correction_bands.get(factor_key, {}))
+                label = str(band.get("label", factor_key.replace("_", " ").title()))
+                title_prefix = ambient_variable_name if is_ambient_form(payload) else ("Temperatura" if is_incubator_form else "Rango")
+                factor_col.markdown(f"**{title_prefix} {label}**")
+
+                min_key = f"range_min_{period_key}_{factor_key}"
+                max_key = f"range_max_{period_key}_{factor_key}"
+                if min_key not in st.session_state:
+                    st.session_state[min_key] = float(band.get("min", 0.0))
+                if max_key not in st.session_state:
+                    st.session_state[max_key] = float(band.get("max", 0.0))
+
+                min_col, max_col = factor_col.columns(2)
+                min_value = min_col.number_input(
+                    "Minimo",
+                    value=float(st.session_state[min_key]),
+                    step=0.001,
+                    format="%.3f",
+                    key=min_key,
+                    disabled=not allow_correction_edits,
+                )
+                max_value = max_col.number_input(
+                    "Maximo",
+                    value=float(st.session_state[max_key]),
+                    step=0.001,
+                    format="%.3f",
+                    key=max_key,
+                    disabled=not allow_correction_edits,
+                )
+                separator = str(band.get("separator", infer_range_separator(label))).strip() or "-"
+                correction_bands[factor_key] = {
+                    "label": build_range_label(min_value, max_value, separator),
+                    "min": float(min_value),
+                    "max": float(max_value),
+                    "separator": separator,
+                }
+
                 operation_col, value_col = factor_col.columns([1, 2])
-                label = correction_bands.get(factor_key, {}).get("label", factor_key.replace("_", " ").title())
-                operation_label = f"Operacion temperatura {label}" if is_incubator_form else f"Operacion {label}"
-                factor_value_label = f"Temperatura {label}" if is_incubator_form else label
                 correction_operations[factor_key] = operation_col.selectbox(
-                    operation_label,
+                    "Operacion",
                     options=["+", "-"],
                     index=0 if correction_operations[factor_key] == "+" else 1,
                     key=f"operation_{period_key}_{factor_key}",
-                    disabled=not allow_sensitive_edits,
+                    disabled=not allow_correction_edits,
                 )
                 correction_factors[factor_key] = value_col.number_input(
-                    factor_value_label,
+                    "Factor de correccion",
                     value=float(correction_factors[factor_key]),
                     step=0.001,
                     format="%.3f",
                     key=f"factor_{period_key}_{factor_key}",
-                    disabled=not allow_sensitive_edits,
+                    disabled=not allow_correction_edits,
                 )
     else:
         st.caption(
@@ -1970,6 +2218,298 @@ def validate_payload(payload: dict[str, Any]) -> list[str]:
     return errors
 
 
+def parse_optional_iso_date(value: str) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        return None
+
+
+def format_traceability_date(value: str) -> str:
+    parsed = parse_optional_iso_date(value)
+    return parsed.strftime("%d/%m/%Y") if parsed else "-"
+
+
+def build_history_dataframe(payload: dict[str, Any], days_back: int) -> pd.DataFrame:
+    form_key = str(payload["metadata"]["form_key"])
+    equipment_code = str(payload["metadata"]["equipment_code"])
+    periods = list_periods_for_equipment(form_key, equipment_code)
+    if not periods:
+        return pd.DataFrame()
+
+    definition = get_form_definition(form_key)
+    primary_metric = definition["metrics"][0]
+    secondary_metric = definition["metrics"][1] if len(definition["metrics"]) > 1 else None
+    cutoff = date.today() - timedelta(days=days_back - 1)
+    rows: list[dict[str, Any]] = []
+
+    for period in periods:
+        period_payload = load_saved_payload(
+            form_key=form_key,
+            equipment_code=equipment_code,
+            year=int(period["year"]),
+            month=int(period["month"]),
+        )
+        for day in range(1, 32):
+            record = period_payload["daily_records"][str(day)]
+            if not record["active"]:
+                continue
+
+            recorded_date = parse_optional_iso_date(record.get("recorded_on", "")) or get_row_period_date(period_payload, day)
+            if recorded_date < cutoff or recorded_date > date.today():
+                continue
+
+            primary_values = (
+                record["corrected_temperatures"]
+                if any(record["corrected_temperatures"]) and primary_metric.get("corrected")
+                else record["measured_temperatures"]
+            )
+            primary_numeric = [parse_measurement_number(value) for value in primary_values]
+            if all(value is None for value in primary_numeric):
+                continue
+
+            row: dict[str, Any] = {
+                "fecha": recorded_date,
+                "dia": day,
+            }
+            valid_primary = [float(value) for value in primary_numeric if value is not None]
+            row["promedio_primario"] = sum(valid_primary) / len(valid_primary)
+            row["minimo_primario"] = min(valid_primary)
+            row["maximo_primario"] = max(valid_primary)
+            for slot_label, numeric_value in zip(TIME_SLOTS, primary_numeric):
+                row[slot_label] = numeric_value
+
+            if secondary_metric is not None:
+                secondary_numeric = [parse_measurement_number(value) for value in record[secondary_metric["key"]]]
+                valid_secondary = [float(value) for value in secondary_numeric if value is not None]
+                row["promedio_secundario"] = (
+                    sum(valid_secondary) / len(valid_secondary) if valid_secondary else None
+                )
+            rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+
+    dataframe = pd.DataFrame(rows).sort_values("fecha")
+    dataframe["fecha"] = pd.to_datetime(dataframe["fecha"])
+    return dataframe
+
+
+def render_reports(payload: dict[str, Any]) -> None:
+    st.subheader("Reportes")
+    st.caption("Consulta el comportamiento historico del equipo por ventana semanal, mensual y semestral.")
+    report_ranges = {
+        "Semanal": 7,
+        "1 mes": 30,
+        "3 meses": 90,
+        "6 meses": 180,
+    }
+    selected_range_label = st.selectbox(
+        "Ventana del reporte",
+        options=list(report_ranges.keys()),
+        key=f"report_range_{get_period_key(payload)}",
+    )
+    history_df = build_history_dataframe(payload, report_ranges[selected_range_label])
+    if history_df.empty:
+        st.info("Aun no hay suficientes registros historicos para este equipo en la ventana seleccionada.")
+        return
+
+    primary_metric = get_form_definition(payload["metadata"]["form_key"])["metrics"][0]
+    primary_label = get_primary_metric_display_label(payload, primary_metric)
+    summary_cols = st.columns(4)
+    summary_cols[0].metric("Dias con captura", f"{len(history_df)}")
+    summary_cols[1].metric("Promedio", format_decimal_value(float(history_df["promedio_primario"].mean())))
+    summary_cols[2].metric("Minimo", format_decimal_value(float(history_df["minimo_primario"].min())))
+    summary_cols[3].metric("Maximo", format_decimal_value(float(history_df["maximo_primario"].max())))
+
+    st.markdown(f"**{primary_label}: promedio, minimo y maximo diarios**")
+    st.line_chart(
+        history_df.set_index("fecha")[["promedio_primario", "minimo_primario", "maximo_primario"]],
+        use_container_width=True,
+    )
+
+    st.markdown(f"**{primary_label}: comportamiento por horario**")
+    slot_columns = [slot for slot in TIME_SLOTS if slot in history_df.columns]
+    st.line_chart(history_df.set_index("fecha")[slot_columns], use_container_width=True)
+
+    if "promedio_secundario" in history_df.columns and history_df["promedio_secundario"].notna().any():
+        secondary_label = "%CO2" if payload["metadata"]["form_key"] == "incubadoras" else "Variable secundaria"
+        st.markdown(f"**{secondary_label}: promedio diario**")
+        st.line_chart(history_df.set_index("fecha")[["promedio_secundario"]], use_container_width=True)
+
+    display_df = history_df.copy()
+    display_df["fecha"] = display_df["fecha"].dt.strftime("%Y-%m-%d")
+    for column in [*TIME_SLOTS, "promedio_primario", "minimo_primario", "maximo_primario", "promedio_secundario"]:
+        if column in display_df.columns:
+            display_df[column] = display_df[column].apply(
+                lambda value: "" if pd.isna(value) else format_decimal_value(float(value))
+            )
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.download_button(
+        "Descargar reporte CSV",
+        data=display_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"reporte_{payload['metadata']['form_key']}_{payload['metadata']['equipment_code']}_{selected_range_label.replace(' ', '_').lower()}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+
+
+def render_traceability_and_validation(payload: dict[str, Any]) -> None:
+    st.subheader("Trazabilidad y validacion")
+    st.caption("Programa y consulta mantenimiento, calibracion, calificacion y validacion de la aplicacion por equipo.")
+    validation_errors = validate_payload(payload)
+    if validation_errors:
+        st.warning("La validacion automatica del periodo actual tiene pendientes.")
+        for error in validation_errors:
+            st.write(f"- {error}")
+    else:
+        st.success("La validacion automatica del periodo actual no detecto pendientes.")
+
+    form_key = str(payload["metadata"]["form_key"])
+    equipment_code = str(payload["metadata"]["equipment_code"])
+    entries = list_traceability_entries(form_key, equipment_code)
+    upcoming_entries = [
+        entry
+        for entry in entries
+        if entry.get("status") == "programado"
+        and (parse_optional_iso_date(entry.get("scheduled_for", "")) or date.max) <= date.today() + timedelta(days=30)
+    ]
+    if upcoming_entries:
+        st.info(f"Hay {len(upcoming_entries)} evento(s) programado(s) dentro de los proximos 30 dias.")
+
+    summary_rows = [
+        {
+            "Tipo": TRACEABILITY_TYPES.get(entry["entry_type"], entry["entry_type"]),
+            "Estado": TRACEABILITY_STATUSES.get(entry["status"], entry["status"]),
+            "Programado": format_traceability_date(entry.get("scheduled_for", "")),
+            "Realizado": format_traceability_date(entry.get("completed_on", "")),
+            "Proveedor / responsable": entry.get("provider", ""),
+            "Notas": entry.get("notes", ""),
+        }
+        for entry in entries
+    ]
+    if summary_rows:
+        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+    else:
+        st.caption("Todavia no hay eventos programados para este equipo.")
+
+    traceability_type_options = list(TRACEABILITY_TYPES.keys())
+    traceability_status_options = list(TRACEABILITY_STATUSES.keys())
+
+    if can_manage_traceability():
+        with st.form(f"traceability_new_{get_period_key(payload)}"):
+            st.markdown("**Registrar o programar evento**")
+            type_col, status_col = st.columns(2)
+            entry_type = type_col.selectbox(
+                "Tipo",
+                options=traceability_type_options,
+                format_func=lambda value: TRACEABILITY_TYPES[value],
+            )
+            status = status_col.selectbox(
+                "Estado",
+                options=traceability_status_options,
+                format_func=lambda value: TRACEABILITY_STATUSES[value],
+            )
+            schedule_col, completed_col = st.columns(2)
+            scheduled_for = schedule_col.date_input("Fecha programada", value=date.today())
+            completed_on = completed_col.date_input("Fecha realizada", value=date.today())
+            provider = st.text_input("Proveedor o responsable")
+            notes = st.text_area("Notas", height=90)
+            if st.form_submit_button("Guardar evento", use_container_width=True):
+                saved_entry = save_traceability_entry(
+                    {
+                        "form_key": form_key,
+                        "equipment_code": equipment_code,
+                        "entry_type": entry_type,
+                        "status": status,
+                        "scheduled_for": scheduled_for.isoformat(),
+                        "completed_on": completed_on.isoformat() if status == "realizado" else "",
+                        "provider": provider,
+                        "notes": notes,
+                    }
+                )
+                log_activity(
+                    "guardar_trazabilidad",
+                    f"{TRACEABILITY_TYPES.get(saved_entry['entry_type'], saved_entry['entry_type'])} -> {TRACEABILITY_STATUSES.get(saved_entry['status'], saved_entry['status'])}",
+                    payload,
+                )
+                st.success("Evento guardado.")
+                st.rerun()
+
+        for entry in entries:
+            title = f"{TRACEABILITY_TYPES.get(entry['entry_type'], entry['entry_type'])} | {TRACEABILITY_STATUSES.get(entry['status'], entry['status'])} | {format_traceability_date(entry.get('scheduled_for', ''))}"
+            with st.expander(title):
+                entry_type_key = f"traceability_type_{entry['id']}"
+                entry_status_key = f"traceability_status_{entry['id']}"
+                scheduled_key = f"traceability_scheduled_{entry['id']}"
+                completed_key = f"traceability_completed_{entry['id']}"
+                provider_key = f"traceability_provider_{entry['id']}"
+                notes_key = f"traceability_notes_{entry['id']}"
+
+                entry_type_value = st.selectbox(
+                    "Tipo",
+                    options=traceability_type_options,
+                    index=traceability_type_options.index(entry["entry_type"]) if entry["entry_type"] in traceability_type_options else 0,
+                    format_func=lambda value: TRACEABILITY_TYPES[value],
+                    key=entry_type_key,
+                )
+                status_value = st.selectbox(
+                    "Estado",
+                    options=traceability_status_options,
+                    index=traceability_status_options.index(entry["status"]) if entry["status"] in traceability_status_options else 0,
+                    format_func=lambda value: TRACEABILITY_STATUSES[value],
+                    key=entry_status_key,
+                )
+                scheduled_value = st.date_input(
+                    "Fecha programada",
+                    value=parse_optional_iso_date(entry.get("scheduled_for", "")) or date.today(),
+                    key=scheduled_key,
+                )
+                completed_value = st.date_input(
+                    "Fecha realizada",
+                    value=parse_optional_iso_date(entry.get("completed_on", "")) or date.today(),
+                    key=completed_key,
+                )
+                provider_value = st.text_input(
+                    "Proveedor o responsable",
+                    value=str(entry.get("provider", "")),
+                    key=provider_key,
+                )
+                notes_value = st.text_area(
+                    "Notas",
+                    value=str(entry.get("notes", "")),
+                    key=notes_key,
+                    height=90,
+                )
+                action_cols = st.columns(2)
+                if action_cols[0].button("Actualizar", key=f"traceability_save_{entry['id']}", use_container_width=True):
+                    save_traceability_entry(
+                        {
+                            "id": entry["id"],
+                            "form_key": form_key,
+                            "equipment_code": equipment_code,
+                            "entry_type": entry_type_value,
+                            "status": status_value,
+                            "scheduled_for": scheduled_value.isoformat(),
+                            "completed_on": completed_value.isoformat() if status_value == "realizado" else "",
+                            "provider": provider_value,
+                            "notes": notes_value,
+                            "created_by": entry.get("created_by", ""),
+                        }
+                    )
+                    log_activity("actualizar_trazabilidad", TRACEABILITY_TYPES.get(entry_type_value, entry_type_value), payload)
+                    st.rerun()
+                if action_cols[1].button("Eliminar", key=f"traceability_delete_{entry['id']}", use_container_width=True):
+                    delete_traceability_entry(entry["id"], form_key, equipment_code)
+                    log_activity("eliminar_trazabilidad", TRACEABILITY_TYPES.get(entry["entry_type"], entry["entry_type"]), payload)
+                    st.rerun()
+    else:
+        st.caption("Solo responsable, calidad o admin pueden programar o actualizar esta agenda.")
+
+
 def populate_template(payload: dict[str, Any]) -> BytesIO:
     form_key = payload["metadata"]["form_key"]
     definition = get_form_definition(form_key)
@@ -2007,6 +2547,20 @@ def populate_template(payload: dict[str, Any]) -> BytesIO:
     write_template_cell(worksheet, year_cell, payload["metadata"]["year"])
 
     if definition["supports_corrections"]:
+        range_cells = payload.get("correction_range_cells", {})
+        for factor_key, cell in range_cells.items():
+            band = payload.get("correction_bands", {}).get(factor_key)
+            if not cell or not isinstance(band, dict):
+                continue
+            label = str(band.get("label", "")).strip()
+            if not label:
+                separator = str(band.get("separator", "-")).strip() or "-"
+                label = build_range_label(
+                    float(band.get("min", 0)),
+                    float(band.get("max", 0)),
+                    separator,
+                )
+            write_template_cell(worksheet, cell, label)
         factor_cells = payload.get("correction_cells", {})
         for factor_key, cell in factor_cells.items():
             if factor_key not in payload["correction_factors"]:
@@ -2832,29 +3386,41 @@ def main() -> None:
         st.session_state.period_key = get_period_key(st.session_state.payload)
         st.rerun()
 
-    payload = st.session_state.payload
-    render_configuration(payload)
+    capture_tab, report_tab, traceability_tab = st.tabs(
+        ["Captura del periodo", "Reportes", "Trazabilidad y validacion"]
+    )
 
-    current_period_key = get_period_key(payload)
-    if current_period_key != previous_period_key:
-        clear_period_widget_state(current_period_key)
-        st.session_state.payload = load_saved_payload(
-            form_key=str(payload["metadata"]["form_key"]),
-            equipment_code=str(payload["metadata"]["equipment_code"]),
-            year=int(payload["metadata"]["year"]),
-            month=int(payload["metadata"]["month"]),
-        )
-        remember_saved_snapshot(st.session_state.payload)
+    with capture_tab:
+        payload = st.session_state.payload
+        render_configuration(payload)
+
+        current_period_key = get_period_key(payload)
+        if current_period_key != previous_period_key:
+            clear_period_widget_state(current_period_key)
+            st.session_state.payload = load_saved_payload(
+                form_key=str(payload["metadata"]["form_key"]),
+                equipment_code=str(payload["metadata"]["equipment_code"]),
+                year=int(payload["metadata"]["year"]),
+                month=int(payload["metadata"]["month"]),
+            )
+            remember_saved_snapshot(st.session_state.payload)
+            st.session_state.period_key = current_period_key
+            st.rerun()
+
         st.session_state.period_key = current_period_key
-        st.rerun()
+        payload = st.session_state.payload
 
-    st.session_state.period_key = current_period_key
+        render_non_working_days(payload)
+        render_daily_capture(payload)
+        render_monthly_closure(payload)
+        render_actions(payload)
+
     payload = st.session_state.payload
+    with report_tab:
+        render_reports(payload)
 
-    render_non_working_days(payload)
-    render_daily_capture(payload)
-    render_monthly_closure(payload)
-    render_actions(payload)
+    with traceability_tab:
+        render_traceability_and_validation(payload)
 
 
 if __name__ == "__main__":

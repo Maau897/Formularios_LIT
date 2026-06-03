@@ -37,3 +37,25 @@ create index if not exists idx_formularios_auditoria_created_at
 
 create index if not exists idx_formularios_auditoria_email
     on formularios_auditoria (email);
+
+create table if not exists formularios_trazabilidad (
+    id uuid primary key default gen_random_uuid(),
+    form_key text not null,
+    equipment_code text not null,
+    entry_type text not null,
+    status text not null default 'programado',
+    scheduled_for date,
+    completed_on date,
+    provider text,
+    notes text,
+    created_by text,
+    updated_by text,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_formularios_trazabilidad_lookup
+    on formularios_trazabilidad (form_key, equipment_code, entry_type);
+
+create index if not exists idx_formularios_trazabilidad_schedule
+    on formularios_trazabilidad (scheduled_for, status);

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 try:
@@ -23,6 +23,7 @@ class SupabaseStorageConfig:
     signatures_prefix: str = ""
     templates_bucket: str = ""
     templates_prefix: str = ""
+    traceability_table_name: str = "formularios_trazabilidad"
 
 
 _CONFIG = SupabaseStorageConfig(url="", key="", enabled=False)
@@ -39,6 +40,7 @@ def configure_supabase_storage(
     signatures_prefix: str = "",
     templates_bucket: str = "",
     templates_prefix: str = "",
+    traceability_table_name: str = "formularios_trazabilidad",
 ) -> None:
     global _CONFIG, _CLIENT
     _CONFIG = SupabaseStorageConfig(
@@ -50,6 +52,7 @@ def configure_supabase_storage(
         signatures_prefix=(signatures_prefix or "").strip().strip("/"),
         templates_bucket=(templates_bucket or "").strip(),
         templates_prefix=(templates_prefix or "").strip().strip("/"),
+        traceability_table_name=(traceability_table_name or "").strip() or "formularios_trazabilidad",
     )
     _CLIENT = None
 
@@ -109,6 +112,10 @@ def _templates_storage_bucket():
     if not templates_storage_enabled():
         raise RuntimeError("Supabase Storage de plantillas no esta configurado.")
     return _client().storage.from_(_CONFIG.templates_bucket)
+
+
+def _traceability_table():
+    return _client().table(_CONFIG.traceability_table_name)
 
 
 def _build_storage_asset_path(prefix: str, name: str) -> str:
@@ -216,3 +223,84 @@ def download_signature_bytes(asset_path: str) -> bytes:
 def download_template_bytes(file_name: str) -> bytes:
     asset_path = _build_storage_asset_path(_CONFIG.templates_prefix, file_name)
     return _templates_storage_bucket().download(asset_path)
+
+
+def list_traceability_entries(form_key: str, equipment_code: str) -> list[dict[str, Any]]:
+    rows = (
+        _traceability_table()
+        .select("*")
+        .eq("form_key", form_key)
+        .eq("equipment_code", equipment_code)
+        .order("scheduled_for")
+        .order("created_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
+    entries: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            entries.append(
+                {
+                    "id": str(row.get("id", "")).strip(),
+                    "form_key": str(row.get("form_key", "")).strip(),
+                    "equipment_code": str(row.get("equipment_code", "")).strip(),
+                    "entry_type": str(row.get("entry_type", "")).strip(),
+                    "status": str(row.get("status", "")).strip() or "programado",
+                    "scheduled_for": str(row.get("scheduled_for", "")).strip(),
+                    "completed_on": str(row.get("completed_on", "")).strip(),
+                    "provider": str(row.get("provider", "")).strip(),
+                    "notes": str(row.get("notes", "")).strip(),
+                    "created_by": str(row.get("created_by", "")).strip(),
+                    "updated_by": str(row.get("updated_by", "")).strip(),
+                    "updated_at": str(row.get("updated_at", "")).strip(),
+                }
+            )
+        except Exception:
+            continue
+    return entries
+
+
+def save_traceability_entry(entry: dict[str, Any], updated_by: str = "") -> dict[str, Any]:
+    normalized_user = updated_by.strip().lower() or None
+    now_iso = datetime.now(timezone.utc).isoformat()
+    normalized_entry = {
+        "id": str(entry.get("id", "")).strip() or None,
+        "form_key": str(entry.get("form_key", "")).strip(),
+        "equipment_code": str(entry.get("equipment_code", "")).strip(),
+        "entry_type": str(entry.get("entry_type", "")).strip(),
+        "status": str(entry.get("status", "")).strip() or "programado",
+        "scheduled_for": str(entry.get("scheduled_for", "")).strip() or None,
+        "completed_on": str(entry.get("completed_on", "")).strip() or None,
+        "provider": str(entry.get("provider", "")).strip() or None,
+        "notes": str(entry.get("notes", "")).strip() or None,
+        "updated_by": normalized_user,
+        "updated_at": now_iso,
+    }
+    if not normalized_entry["form_key"] or not normalized_entry["equipment_code"] or not normalized_entry["entry_type"]:
+        raise ValueError("La trazabilidad requiere formato, equipo y tipo de evento.")
+    if normalized_entry["id"] is None:
+        normalized_entry["created_by"] = normalized_user
+    response = _traceability_table().upsert(normalized_entry).execute().data or []
+    saved = response[0] if response else normalized_entry
+    return {
+        "id": str(saved.get("id", normalized_entry["id"] or "")).strip(),
+        "form_key": str(saved.get("form_key", normalized_entry["form_key"])).strip(),
+        "equipment_code": str(saved.get("equipment_code", normalized_entry["equipment_code"])).strip(),
+        "entry_type": str(saved.get("entry_type", normalized_entry["entry_type"])).strip(),
+        "status": str(saved.get("status", normalized_entry["status"])).strip(),
+        "scheduled_for": str(saved.get("scheduled_for", normalized_entry.get("scheduled_for") or "")).strip(),
+        "completed_on": str(saved.get("completed_on", normalized_entry.get("completed_on") or "")).strip(),
+        "provider": str(saved.get("provider", normalized_entry.get("provider") or "")).strip(),
+        "notes": str(saved.get("notes", normalized_entry.get("notes") or "")).strip(),
+        "created_by": str(saved.get("created_by", normalized_user or "")).strip(),
+        "updated_by": str(saved.get("updated_by", normalized_user or "")).strip(),
+        "updated_at": str(saved.get("updated_at", now_iso)).strip(),
+    }
+
+
+def delete_traceability_entry(entry_id: str) -> None:
+    normalized_id = entry_id.strip()
+    if not normalized_id:
+        raise ValueError("El identificador de la trazabilidad es obligatorio.")
+    _traceability_table().delete().eq("id", normalized_id).execute()
