@@ -3220,7 +3220,7 @@ def calculate_corrected_temperature(
         for index in range(1, len(normalized_bands)):
             previous_band = normalized_bands[index - 1]
             current_band = normalized_bands[index]
-            if previous_band["max"] < measured < current_band["min"]:
+            if previous_band["max"] <= measured < current_band["min"]:
                 factor_key = current_band["key"]
                 break
 
