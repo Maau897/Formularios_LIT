@@ -3189,19 +3189,41 @@ def calculate_corrected_temperature(
     if measured is None:
         return ""
 
-    factor_key = None
-    band_items = list(correction_bands.items())
-    for index, (key, band) in enumerate(band_items):
+    normalized_bands: list[dict[str, Any]] = []
+    for key, band in correction_bands.items():
         min_value = float(band["min"])
         max_value = float(band["max"])
         if max_value < min_value:
             reparsed_bounds = parse_range_bounds(str(band.get("label", "")))
             if reparsed_bounds is not None:
                 min_value, max_value = reparsed_bounds
-        is_last = index == len(band_items) - 1
-        if min_value <= measured <= max_value if is_last else min_value <= measured < max_value:
-            factor_key = key
+        lower_bound = min(min_value, max_value)
+        upper_bound = max(min_value, max_value)
+        normalized_bands.append(
+            {
+                "key": key,
+                "min": lower_bound,
+                "max": upper_bound,
+            }
+        )
+
+    normalized_bands.sort(key=lambda item: (item["min"], item["max"]))
+
+    factor_key = None
+    for index, band in enumerate(normalized_bands):
+        is_last = index == len(normalized_bands) - 1
+        if band["min"] <= measured <= band["max"] if is_last else band["min"] <= measured < band["max"]:
+            factor_key = band["key"]
             break
+
+    if factor_key is None:
+        for index in range(1, len(normalized_bands)):
+            previous_band = normalized_bands[index - 1]
+            current_band = normalized_bands[index]
+            if previous_band["max"] < measured < current_band["min"]:
+                factor_key = current_band["key"]
+                break
+
     if factor_key is None or factor_key not in correction_factors:
         return format_decimal_value(measured)
 
