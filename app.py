@@ -249,6 +249,7 @@ class DailyCapture:
     performed_by_slots: list[str]
     verified_by: str
     recorded_on: str
+    recorded_on_mode: str = "auto"
     notes: str = ""
 
 
@@ -262,6 +263,7 @@ def default_daily_capture(day: int) -> DailyCapture:
         performed_by_slots=["", "", ""],
         verified_by="",
         recorded_on="",
+        recorded_on_mode="auto",
         notes="",
     )
 
@@ -1250,6 +1252,8 @@ def merge_payload_with_saved_data(
         record.setdefault("corrected_temperatures", ["", "", ""])
         record.setdefault("secondary_measurements", ["", "", ""])
         record.setdefault("performed_by_slots", ["", "", ""])
+        if not str(record.get("recorded_on_mode", "")).strip():
+            record["recorded_on_mode"] = "auto" if not str(record.get("verified_by", "")).strip() else "manual"
 
     return default_payload
 
@@ -2026,13 +2030,14 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                     verifier_cols[0].caption("Firma digital: sin coincidencia")
             else:
                 verifier_cols[0].caption("Firma digital: pendiente")
-            current_date = get_period_default_date(payload, day, record["recorded_on"])
+            current_date = get_period_default_date(payload, day, record)
             date_key = f"date_{period_key}_{day}"
             if date_key not in st.session_state:
                 st.session_state[date_key] = current_date
-            elif is_current_period(payload) and uses_default_daily_record_date(payload, day, record["recorded_on"]):
+            elif should_follow_live_record_date(payload, record):
                 st.session_state[date_key] = current_date
-            record["recorded_on"] = verifier_cols[1].date_input(
+            original_mode = str(record.get("recorded_on_mode", "auto")).strip().lower() or "auto"
+            selected_date = verifier_cols[1].date_input(
                 "Fecha de verificacion",
                 min_value=date(
                     int(payload["metadata"]["year"]),
@@ -2049,7 +2054,16 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                 ),
                 key=date_key,
                 disabled=not allow_verification_edits,
-            ).isoformat()
+            )
+            record["recorded_on"] = selected_date.isoformat()
+            if str(record["verified_by"]).strip():
+                record["recorded_on_mode"] = "manual"
+            elif selected_date != current_date:
+                record["recorded_on_mode"] = "manual"
+            elif should_follow_live_record_date(payload, record):
+                record["recorded_on_mode"] = "auto"
+            else:
+                record["recorded_on_mode"] = original_mode
 
             notes_key = f"notes_{period_key}_{day}"
             if notes_key not in st.session_state:
@@ -2090,17 +2104,22 @@ def get_row_period_date(payload: dict[str, Any], day: int) -> date:
     return date(year, month, min(day, last_day))
 
 
-def uses_default_daily_record_date(payload: dict[str, Any], day: int, recorded_on: str) -> bool:
-    if not recorded_on.strip():
-        return True
-    parsed = parse_streamlit_date(recorded_on)
-    return parsed == get_row_period_date(payload, day)
+def should_follow_live_record_date(payload: dict[str, Any], record: dict[str, Any]) -> bool:
+    mode = str(record.get("recorded_on_mode", "auto")).strip().lower() or "auto"
+    if mode != "auto":
+        return False
+    if not is_current_period(payload):
+        return False
+    if str(record.get("verified_by", "")).strip():
+        return False
+    return True
 
 
-def get_period_default_date(payload: dict[str, Any], day: int, recorded_on: str) -> date:
+def get_period_default_date(payload: dict[str, Any], day: int, record: dict[str, Any]) -> date:
     year = int(payload["metadata"]["year"])
     month = int(payload["metadata"]["month"])
-    if is_current_period(payload) and uses_default_daily_record_date(payload, day, recorded_on):
+    recorded_on = str(record.get("recorded_on", "")).strip()
+    if should_follow_live_record_date(payload, record):
         return date.today()
 
     if recorded_on.strip():
