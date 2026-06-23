@@ -3230,8 +3230,7 @@ def calculate_corrected_temperature(
 
     factor_key = None
     for index, band in enumerate(normalized_bands):
-        is_last = index == len(normalized_bands) - 1
-        if band["min"] <= measured <= band["max"] if is_last else band["min"] <= measured < band["max"]:
+        if band["min"] <= measured <= band["max"]:
             factor_key = band["key"]
             break
 
@@ -3239,7 +3238,7 @@ def calculate_corrected_temperature(
         for index in range(1, len(normalized_bands)):
             previous_band = normalized_bands[index - 1]
             current_band = normalized_bands[index]
-            if previous_band["max"] <= measured < current_band["min"]:
+            if previous_band["max"] < measured < current_band["min"]:
                 factor_key = current_band["key"]
                 break
 
