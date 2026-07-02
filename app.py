@@ -30,6 +30,14 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.units import pixels_to_EMU
 from PIL import Image as PILImage
+from microsoft_graph import (
+    MicrosoftGraphError,
+    add_master_table_row,
+    configure_microsoft_graph,
+    get_master_table,
+    microsoft_graph_enabled,
+    update_master_table_row,
+)
 from supabase_users import (
     aprobar_usuario,
     actualizar_rol_usuario,
@@ -314,6 +322,17 @@ def configure_storage_backend() -> None:
     )
 
 
+def configure_microsoft_backend() -> None:
+    configure_microsoft_graph(
+        tenant_id=str(get_config_value("microsoft_tenant_id", "MICROSOFT_TENANT_ID", "")),
+        client_id=str(get_config_value("microsoft_client_id", "MICROSOFT_CLIENT_ID", "")),
+        client_secret=str(get_config_value("microsoft_client_secret", "MICROSOFT_CLIENT_SECRET", "")),
+        refresh_token=str(get_config_value("microsoft_refresh_token", "MICROSOFT_REFRESH_TOKEN", "")),
+        shared_url=str(get_config_value("microsoft_shared_url", "MICROSOFT_SHARED_URL", "")),
+        table_name=str(get_config_value("microsoft_table_name", "MICROSOFT_TABLE_NAME", "ListaMaestra")),
+    )
+
+
 def normalize_user_role(rol: Any, es_admin: bool) -> str:
     if es_admin:
         return "admin"
@@ -409,6 +428,10 @@ def can_close_period() -> bool:
 
 
 def can_manage_traceability() -> bool:
+    return current_user_role() in {"responsable", "calidad", "admin"}
+
+
+def can_edit_master_list() -> bool:
     return current_user_role() in {"responsable", "calidad", "admin"}
 
 
@@ -2317,6 +2340,266 @@ def build_history_dataframe(payload: dict[str, Any], days_back: int) -> pd.DataF
     return dataframe
 
 
+MASTER_COLUMN_ALIASES = {
+    "tipo": ["TIPO DE DOCUMENTO", "TIPO"],
+    "nombre": ["NOMBRE DEL DOCUMENTO", "DOCUMENTO", "NOMBRE"],
+    "codigo": ["CODIGO LIT", "CODIGO", "CÓDIGO LIT"],
+    "fecha_alta": ["FECHA DE ALTA", "ALTA"],
+    "fecha_vigencia": ["FECHA DE VIGENCIA", "VIGENCIA"],
+    "almacenamiento": ["ALMACENAMIENTO", "UBICACION", "UBICACIÓN"],
+}
+
+
+def normalize_master_column_name(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(character for character in text if not unicodedata.combining(character))
+    return re.sub(r"\s+", " ", text).strip().upper()
+
+
+def find_master_column(columns: list[str], alias_key: str) -> str | None:
+    candidates = {
+        normalize_master_column_name(candidate)
+        for candidate in MASTER_COLUMN_ALIASES.get(alias_key, [])
+    }
+    for column in columns:
+        if normalize_master_column_name(column) in candidates:
+            return column
+    return None
+
+
+def parse_master_date(value: Any) -> date | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, (int, float)) and not pd.isna(value):
+        return date(1899, 12, 30) + timedelta(days=int(value))
+
+    text = str(value).strip()
+    if not text or normalize_master_column_name(text) in {"PENDIENTE", "N/A", "NA"}:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        pass
+    for date_format in ("%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%m-%d-%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, date_format).date()
+        except ValueError:
+            continue
+    return None
+
+
+def normalize_master_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and pd.isna(value):
+        return ""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value).strip()
+
+
+@st.cache_data(show_spinner=False, ttl=300)
+def load_master_table_cached() -> dict[str, Any]:
+    return get_master_table()
+
+
+def build_master_dataframe(table: dict[str, Any]) -> pd.DataFrame:
+    columns = [str(column) for column in table.get("columns", [])]
+    rows: list[dict[str, Any]] = []
+    for row in table.get("rows", []):
+        values = list(row.get("values", []))
+        if len(values) < len(columns):
+            values.extend([""] * (len(columns) - len(values)))
+        values = values[: len(columns)]
+        if not any(normalize_master_cell(value) for value in values):
+            continue
+        row_data = dict(zip(columns, values))
+        row_data["_row_index"] = int(row.get("index", len(rows)))
+        rows.append(row_data)
+    return pd.DataFrame(rows, columns=[*columns, "_row_index"])
+
+
+def build_master_alerts(dataframe: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    if dataframe.empty:
+        return pd.DataFrame()
+    vigencia_col = find_master_column(columns, "fecha_vigencia")
+    if not vigencia_col or vigencia_col not in dataframe.columns:
+        return pd.DataFrame()
+
+    codigo_col = find_master_column(columns, "codigo")
+    nombre_col = find_master_column(columns, "nombre")
+    tipo_col = find_master_column(columns, "tipo")
+    today = date.today()
+    alert_rows = []
+    for _, row in dataframe.iterrows():
+        vigencia = parse_master_date(row.get(vigencia_col))
+        days_left = (vigencia - today).days if vigencia else None
+        if days_left is None:
+            status = "Sin fecha"
+        elif days_left < 0:
+            status = "Vencido"
+        elif days_left <= 30:
+            status = "Vence en 30 dias"
+        elif days_left <= 60:
+            status = "Vence en 60 dias"
+        elif days_left <= 90:
+            status = "Vence en 90 dias"
+        else:
+            status = "Vigente"
+        alert_rows.append(
+            {
+                "Estado": status,
+                "Dias restantes": "" if days_left is None else days_left,
+                "Fecha de vigencia": vigencia.strftime("%d/%m/%Y") if vigencia else "",
+                "Codigo": row.get(codigo_col, "") if codigo_col else "",
+                "Documento": row.get(nombre_col, "") if nombre_col else "",
+                "Tipo": row.get(tipo_col, "") if tipo_col else "",
+            }
+        )
+
+    alerts_df = pd.DataFrame(alert_rows)
+    severity_order = {
+        "Vencido": 0,
+        "Vence en 30 dias": 1,
+        "Vence en 60 dias": 2,
+        "Vence en 90 dias": 3,
+        "Sin fecha": 4,
+        "Vigente": 5,
+    }
+    alerts_df["_order"] = alerts_df["Estado"].map(severity_order).fillna(9)
+    return alerts_df.sort_values(["_order", "Dias restantes"], kind="stable").drop(columns=["_order"])
+
+
+def render_master_list() -> None:
+    st.subheader("Lista maestra")
+    st.caption("Consulta vigencias desde el Excel de OneDrive y edita la tabla central sin duplicar archivos.")
+
+    if not microsoft_graph_enabled():
+        st.warning(
+            "Falta configurar Microsoft Graph en secrets: microsoft_tenant_id, "
+            "microsoft_client_id, microsoft_client_secret, microsoft_shared_url y microsoft_table_name."
+        )
+        return
+
+    refresh_col, link_col = st.columns([1, 3])
+    if refresh_col.button("Actualizar lista", use_container_width=True):
+        load_master_table_cached.clear()
+        st.rerun()
+
+    try:
+        table = load_master_table_cached()
+    except MicrosoftGraphError as exc:
+        st.error(f"No se pudo cargar la lista maestra: {exc}")
+        return
+
+    columns = [str(column) for column in table.get("columns", [])]
+    dataframe = build_master_dataframe(table)
+    web_url = str(table.get("web_url", ""))
+    if web_url:
+        link_col.link_button("Abrir en OneDrive", web_url, use_container_width=True)
+
+    if dataframe.empty:
+        st.info("La tabla de OneDrive no tiene registros utiles para mostrar.")
+        return
+
+    alerts_df = build_master_alerts(dataframe, columns)
+    if not alerts_df.empty:
+        alert_filter = st.selectbox(
+            "Filtro de alertas",
+            options=["Criticos", "90 dias", "Todos"],
+            key="master_alert_filter",
+        )
+        if alert_filter == "Criticos":
+            display_alerts = alerts_df[
+                alerts_df["Estado"].isin(["Vencido", "Vence en 30 dias", "Sin fecha"])
+            ]
+        elif alert_filter == "90 dias":
+            display_alerts = alerts_df[
+                alerts_df["Estado"].isin(
+                    ["Vencido", "Vence en 30 dias", "Vence en 60 dias", "Vence en 90 dias", "Sin fecha"]
+                )
+            ]
+        else:
+            display_alerts = alerts_df
+
+        st.markdown("**Alertas de vigencia**")
+        st.dataframe(display_alerts, use_container_width=True, hide_index=True)
+    else:
+        st.info("No encontre una columna de Fecha de vigencia para generar alertas.")
+
+    st.markdown("**Registros de la lista maestra**")
+    editable = can_edit_master_list()
+    if editable:
+        edited_df = st.data_editor(
+            dataframe,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed",
+            disabled=["_row_index"],
+            column_config={"_row_index": None},
+            key="master_list_editor",
+        )
+        save_col, _ = st.columns([1, 3])
+        if save_col.button("Guardar cambios en OneDrive", use_container_width=True):
+            changes_count = 0
+            code_col = find_master_column(columns, "codigo")
+            for row_position in range(len(dataframe)):
+                original_row = dataframe.iloc[row_position]
+                edited_row = edited_df.iloc[row_position]
+                changed_columns = [
+                    column
+                    for column in columns
+                    if normalize_master_cell(original_row.get(column)) != normalize_master_cell(edited_row.get(column))
+                ]
+                if not changed_columns:
+                    continue
+
+                row_values = [
+                    "" if pd.isna(edited_row.get(column)) else edited_row.get(column)
+                    for column in columns
+                ]
+                update_master_table_row(int(original_row["_row_index"]), row_values)
+                changes_count += len(changed_columns)
+                code_value = normalize_master_cell(edited_row.get(code_col)) if code_col else f"fila {row_position + 1}"
+                for column in changed_columns:
+                    log_activity(
+                        "actualizar_lista_maestra",
+                        f"{code_value}: {column}: {normalize_master_cell(original_row.get(column))} -> {normalize_master_cell(edited_row.get(column))}",
+                        {"metadata": {}},
+                    )
+
+            if changes_count:
+                load_master_table_cached.clear()
+                st.success(f"Se guardaron {changes_count} cambio(s) en OneDrive.")
+                st.rerun()
+            else:
+                st.info("No hubo cambios para guardar.")
+
+        with st.expander("Agregar documento"):
+            with st.form("master_list_add_row"):
+                new_values_by_column: dict[str, Any] = {}
+                input_columns = st.columns(3)
+                for index, column in enumerate(columns):
+                    new_values_by_column[column] = input_columns[index % 3].text_input(column, key=f"new_master_{column}")
+                if st.form_submit_button("Agregar a OneDrive", use_container_width=True):
+                    new_values = [new_values_by_column[column] for column in columns]
+                    if not any(normalize_master_cell(value) for value in new_values):
+                        st.warning("Captura al menos un dato antes de agregar la fila.")
+                    else:
+                        add_master_table_row(new_values)
+                        log_activity("agregar_lista_maestra", "Agrego documento a lista maestra", {"metadata": {}})
+                        load_master_table_cached.clear()
+                        st.success("Documento agregado a OneDrive.")
+                        st.rerun()
+    else:
+        st.dataframe(dataframe.drop(columns=["_row_index"], errors="ignore"), use_container_width=True, hide_index=True)
+        st.caption("Solo responsable, calidad o admin pueden editar la lista maestra desde la app.")
+
+
 def render_reports(payload: dict[str, Any]) -> None:
     st.subheader("Reportes")
     st.caption("Consulta el comportamiento historico del equipo por ventana semanal, mensual y semestral.")
@@ -3367,6 +3650,7 @@ def main() -> None:
     )
     configure_users_backend()
     configure_storage_backend()
+    configure_microsoft_backend()
     initialize_auth_state()
 
     if not st.session_state["autenticado"]:
@@ -3426,8 +3710,8 @@ def main() -> None:
         st.session_state.period_key = get_period_key(st.session_state.payload)
         st.rerun()
 
-    capture_tab, report_tab, traceability_tab = st.tabs(
-        ["Captura del periodo", "Reportes", "Trazabilidad y validacion"]
+    capture_tab, report_tab, master_tab, traceability_tab = st.tabs(
+        ["Captura del periodo", "Reportes", "Lista maestra", "Trazabilidad y validacion"]
     )
 
     with capture_tab:
@@ -3458,6 +3742,9 @@ def main() -> None:
     payload = st.session_state.payload
     with report_tab:
         render_reports(payload)
+
+    with master_tab:
+        render_master_list()
 
     with traceability_tab:
         render_traceability_and_validation(payload)
