@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import base64
 import json
+import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
@@ -94,6 +95,18 @@ def _json_request(method: str, url: str, *, token: str = "", body: Any = None) -
         raise MicrosoftGraphError("Microsoft Graph regreso una respuesta no valida.") from exc
 
 
+def _authenticated_json_request(method: str, url: str, *, body: Any = None) -> dict[str, Any]:
+    token = _get_access_token()
+    try:
+        return _json_request(method, url, token=token, body=body)
+    except MicrosoftGraphError as exc:
+        if "Microsoft Graph respondio 401" not in str(exc):
+            raise
+        _TOKEN_CACHE.pop("access_token", None)
+        _TOKEN_CACHE.pop("expires_at", None)
+        return _json_request(method, url, token=_get_access_token(), body=body)
+
+
 def _form_request(url: str, form: dict[str, str]) -> dict[str, Any]:
     request = Request(
         url,
@@ -119,7 +132,8 @@ def _get_access_token() -> str:
     if not microsoft_graph_enabled():
         raise MicrosoftGraphError("La integracion de Microsoft Graph no esta configurada.")
     cached_token = str(_TOKEN_CACHE.get("access_token", ""))
-    if cached_token:
+    expires_at = float(_TOKEN_CACHE.get("expires_at", 0))
+    if cached_token and expires_at > time.time() + 60:
         return cached_token
 
     token_url = f"https://login.microsoftonline.com/{quote(_CONFIG.tenant_id)}/oauth2/v2.0/token"
@@ -147,7 +161,9 @@ def _get_access_token() -> str:
     access_token = str(token_response.get("access_token", ""))
     if not access_token:
         raise MicrosoftGraphError("Microsoft Identity no regreso access_token.")
+    expires_in = int(token_response.get("expires_in", 3600) or 3600)
     _TOKEN_CACHE["access_token"] = access_token
+    _TOKEN_CACHE["expires_at"] = time.time() + max(expires_in, 60)
     if token_response.get("refresh_token"):
         _TOKEN_CACHE["refresh_token"] = token_response["refresh_token"]
     return access_token
@@ -162,9 +178,8 @@ def _resolve_drive_item() -> dict[str, str]:
     if _DRIVE_ITEM_CACHE:
         return dict(_DRIVE_ITEM_CACHE)
 
-    token = _get_access_token()
     share_id = quote(_sharing_token(_CONFIG.shared_url), safe="!")
-    response = _json_request("GET", f"{GRAPH_BASE_URL}/shares/{share_id}/driveItem", token=token)
+    response = _authenticated_json_request("GET", f"{GRAPH_BASE_URL}/shares/{share_id}/driveItem")
     parent_reference = response.get("parentReference") or {}
     drive_id = str(parent_reference.get("driveId", ""))
     item_id = str(response.get("id", ""))
@@ -190,10 +205,9 @@ def _table_base_url(drive_id: str, item_id: str) -> str:
 
 def get_master_table() -> dict[str, Any]:
     item = _resolve_drive_item()
-    token = _get_access_token()
     table_url = _table_base_url(item["drive_id"], item["item_id"])
-    columns_response = _json_request("GET", f"{table_url}/columns", token=token)
-    rows_response = _json_request("GET", f"{table_url}/rows", token=token)
+    columns_response = _authenticated_json_request("GET", f"{table_url}/columns")
+    rows_response = _authenticated_json_request("GET", f"{table_url}/rows")
 
     columns = [str(column.get("name", "")) for column in columns_response.get("value", [])]
     rows = []
@@ -239,10 +253,9 @@ def _odata_string_literal(value: str) -> str:
 
 def update_master_table_row(row_index: int, values: list[Any]) -> None:
     item = _resolve_drive_item()
-    token = _get_access_token()
     table_url = _table_base_url(item["drive_id"], item["item_id"])
     row_range_url = f"{table_url}/rows/itemAt(index={int(row_index)})/range"
-    range_response = _json_request("GET", row_range_url, token=token)
+    range_response = _authenticated_json_request("GET", row_range_url)
     address = str(range_response.get("address", ""))
     sheet_name, cell_range = _split_excel_address(address)
     update_url = (
@@ -250,11 +263,10 @@ def update_master_table_row(row_index: int, values: list[Any]) -> None:
         f"/workbook/worksheets('{_odata_string_literal(sheet_name)}')"
         f"/range(address='{_odata_string_literal(cell_range)}')"
     )
-    _json_request("PATCH", update_url, token=token, body={"values": [values]})
+    _authenticated_json_request("PATCH", update_url, body={"values": [values]})
 
 
 def add_master_table_row(values: list[Any]) -> None:
     item = _resolve_drive_item()
-    token = _get_access_token()
     table_url = _table_base_url(item["drive_id"], item["item_id"])
-    _json_request("POST", f"{table_url}/rows/add", token=token, body={"values": [values]})
+    _authenticated_json_request("POST", f"{table_url}/rows/add", body={"values": [values]})
