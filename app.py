@@ -1552,13 +1552,6 @@ def build_change_log_entry(previous_payload: dict[str, Any], current_payload: di
         if previous_verified and previous_verified != current_verified:
             items.append(f"Cambio: Dia {day} Verifico: {previous_verified} -> {current_verified or 'vacio'}")
 
-        previous_date = str(previous_record.get("recorded_on", "")).strip()
-        current_date = str(current_record.get("recorded_on", "")).strip()
-        if previous_date and previous_date != current_date:
-            items.append(
-                f"Cambio: Dia {day} Fecha de verificacion: {normalize_excel_date(previous_date)} -> {normalize_excel_date(current_date)}"
-            )
-
     if not items:
         return None
 
