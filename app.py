@@ -3676,7 +3676,7 @@ def calculate_corrected_temperature(
             previous_band = normalized_bands[index - 1]
             current_band = normalized_bands[index]
             if previous_band["max"] < measured < current_band["min"]:
-                factor_key = current_band["key"]
+                factor_key = current_band["key"] if measured < 0 else previous_band["key"]
                 break
 
     if factor_key is None or factor_key not in correction_factors:
