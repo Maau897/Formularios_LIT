@@ -58,10 +58,12 @@ from supabase_storage import (
     download_signature_bytes,
     get_signatures_storage_cache_key,
     get_templates_storage_cache_key,
+    load_equipment_config_payload as load_remote_equipment_config_payload,
     list_signature_assets as list_remote_signature_assets,
     list_periods as list_remote_periods,
     list_traceability_entries as list_remote_traceability_entries,
     load_period_payload as load_remote_period_payload,
+    save_equipment_config_payload as save_remote_equipment_config_payload,
     save_period_payload as save_remote_period_payload,
     save_traceability_entry as save_remote_traceability_entry,
     delete_traceability_entry as delete_remote_traceability_entry,
@@ -78,6 +80,7 @@ TEMPLATE_PATH = BASE_DIR / "F-LIT-21-03.xlsx"
 WORKING_TEMPLATE_PATH = BASE_DIR / "template_cong1.xlsx"
 DATA_DIR = BASE_DIR / "data"
 TRACEABILITY_DIR = DATA_DIR / "trazabilidad"
+EQUIPMENT_CONFIG_DIR = DATA_DIR / "configuracion_equipos"
 SIGNATURES_DIR = BASE_DIR / "firmas digitales"
 
 MONTHS = {
@@ -319,6 +322,7 @@ def configure_storage_backend() -> None:
         signatures_prefix=str(get_config_value("supabase_signatures_prefix", "SUPABASE_SIGNATURES_PREFIX", "")),
         templates_bucket=str(get_config_value("supabase_templates_bucket", "SUPABASE_TEMPLATES_BUCKET", "")),
         templates_prefix=str(get_config_value("supabase_templates_prefix", "SUPABASE_TEMPLATES_PREFIX", "")),
+        equipment_config_table_name=str(get_config_value("supabase_equipment_config_table", "SUPABASE_EQUIPMENT_CONFIG_TABLE", "formularios_equipo_config")),
     )
 
 
@@ -1121,6 +1125,154 @@ def hydrate_payload_corrections(payload: dict[str, Any]) -> dict[str, Any]:
 def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     TRACEABILITY_DIR.mkdir(parents=True, exist_ok=True)
+    EQUIPMENT_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def extract_correction_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "correction_bands": dict(payload.get("correction_bands", {})),
+        "correction_factors": dict(payload.get("correction_factors", {})),
+        "correction_operations": dict(payload.get("correction_operations", {})),
+    }
+
+
+def correction_settings_are_empty(settings: dict[str, Any] | None) -> bool:
+    if not isinstance(settings, dict):
+        return True
+    return not any(
+        settings.get(key)
+        for key in ("correction_bands", "correction_factors", "correction_operations")
+    )
+
+
+def get_equipment_config_file(form_key: str, equipment_code: str) -> Path:
+    ensure_data_dir()
+    safe_form = re.sub(r"[^a-z0-9_]+", "_", form_key.lower())
+    safe_equipment = re.sub(r"[^a-z0-9_]+", "_", equipment_code.lower())
+    return EQUIPMENT_CONFIG_DIR / f"{safe_form}_{safe_equipment}_corrections.json"
+
+
+def load_local_correction_settings(form_key: str, equipment_code: str) -> dict[str, Any] | None:
+    config_file = get_equipment_config_file(form_key, equipment_code)
+    if not config_file.exists():
+        return None
+    try:
+        data = json.loads(config_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def save_local_correction_settings(form_key: str, equipment_code: str, settings: dict[str, Any]) -> None:
+    get_equipment_config_file(form_key, equipment_code).write_text(
+        json.dumps(settings, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def load_shared_correction_settings(form_key: str, equipment_code: str) -> dict[str, Any] | None:
+    ensure_data_dir()
+    if supabase_storage_enabled():
+        try:
+            settings = load_remote_equipment_config_payload(form_key, equipment_code, "corrections")
+            if not correction_settings_are_empty(settings):
+                return settings
+        except Exception:
+            pass
+
+    settings = load_local_correction_settings(form_key, equipment_code)
+    if not correction_settings_are_empty(settings):
+        return settings
+    return None
+
+
+def find_latest_saved_correction_settings(form_key: str, equipment_code: str) -> dict[str, Any] | None:
+    periods = sorted(
+        list_periods_for_equipment(form_key, equipment_code),
+        key=lambda row: (int(row.get("year", 0)), int(row.get("month", 0))),
+        reverse=True,
+    )
+    for period in periods:
+        try:
+            year = int(period["year"])
+            month = int(period["month"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        data: dict[str, Any] | None = None
+        if supabase_storage_enabled():
+            try:
+                data = load_remote_period_payload(form_key, equipment_code, year, month)
+            except Exception:
+                data = None
+        if data is None:
+            data_file = get_period_file_from_values(form_key, equipment_code, year, month)
+            if data_file.exists():
+                try:
+                    data = json.loads(data_file.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    data = None
+        if not isinstance(data, dict):
+            continue
+
+        settings = extract_correction_settings(data)
+        if not correction_settings_are_empty(settings):
+            return settings
+    return None
+
+
+def save_shared_correction_settings(payload: dict[str, Any]) -> str:
+    metadata = payload.get("metadata", {})
+    form_key = str(metadata.get("form_key", "")).strip()
+    equipment_code = str(metadata.get("equipment_code", "")).strip()
+    if not form_key or not equipment_code:
+        return "omitido"
+
+    definition = get_form_definition(form_key)
+    if not definition.get("supports_corrections"):
+        return "omitido"
+
+    settings = extract_correction_settings(payload)
+    if correction_settings_are_empty(settings):
+        return "omitido"
+
+    if supabase_storage_enabled():
+        try:
+            save_remote_equipment_config_payload(
+                form_key,
+                equipment_code,
+                settings,
+                config_type="corrections",
+                updated_by=str(st.session_state.get("usuario_email", "")).strip(),
+            )
+            return "Supabase"
+        except Exception:
+            pass
+
+    save_local_correction_settings(form_key, equipment_code, settings)
+    return "Local JSON"
+
+
+def apply_shared_correction_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = payload.get("metadata", {})
+    form_key = str(metadata.get("form_key", DEFAULT_FORM_KEY))
+    equipment_code = str(metadata.get("equipment_code", DEFAULT_EQUIPMENT_CODE))
+    shared_settings = load_shared_correction_settings(form_key, equipment_code)
+    if correction_settings_are_empty(shared_settings):
+        shared_settings = find_latest_saved_correction_settings(form_key, equipment_code)
+        if not correction_settings_are_empty(shared_settings):
+            payload_for_save = dict(payload)
+            payload_for_save["correction_bands"] = shared_settings.get("correction_bands", {})
+            payload_for_save["correction_factors"] = shared_settings.get("correction_factors", {})
+            payload_for_save["correction_operations"] = shared_settings.get("correction_operations", {})
+            save_shared_correction_settings(payload_for_save)
+    if correction_settings_are_empty(shared_settings):
+        return payload
+
+    payload["correction_bands"] = shared_settings.get("correction_bands", payload.get("correction_bands", {}))
+    payload["correction_factors"].update(shared_settings.get("correction_factors", {}))
+    payload["correction_operations"].update(shared_settings.get("correction_operations", {}))
+    return hydrate_payload_corrections(payload)
 
 
 def get_traceability_file(form_key: str, equipment_code: str) -> Path:
@@ -1329,8 +1481,10 @@ def load_saved_payload(
         try:
             remote_payload = load_remote_period_payload(form_key, equipment_code, year, month)
             if remote_payload:
-                return hydrate_payload_corrections(
-                    merge_payload_with_saved_data(remote_payload, equipment_code=equipment_code, form_key=form_key)
+                return apply_shared_correction_settings(
+                    hydrate_payload_corrections(
+                        merge_payload_with_saved_data(remote_payload, equipment_code=equipment_code, form_key=form_key)
+                    )
                 )
         except Exception:
             pass
@@ -1339,13 +1493,15 @@ def load_saved_payload(
     if not data_file.exists():
         default_payload["metadata"]["year"] = year
         default_payload["metadata"]["month"] = month
-        return hydrate_payload_corrections(default_payload)
+        return apply_shared_correction_settings(hydrate_payload_corrections(default_payload))
 
     with data_file.open("r", encoding="utf-8") as file:
         data = json.load(file)
 
-    return hydrate_payload_corrections(
-        merge_payload_with_saved_data(data, equipment_code=equipment_code, form_key=form_key)
+    return apply_shared_correction_settings(
+        hydrate_payload_corrections(
+            merge_payload_with_saved_data(data, equipment_code=equipment_code, form_key=form_key)
+        )
     )
 
 
@@ -1455,6 +1611,11 @@ def save_payload(payload: dict[str, Any]) -> str:
         if change_entry is not None:
             payload.setdefault("change_log", []).append(change_entry)
             payload["change_log"] = payload["change_log"][-80:]
+
+    try:
+        save_shared_correction_settings(payload)
+    except Exception:
+        pass
 
     if supabase_storage_enabled():
         try:

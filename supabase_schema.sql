@@ -20,6 +20,21 @@ create index if not exists idx_formularios_periodos_lookup
 create index if not exists idx_formularios_periodos_period
     on formularios_periodos (year desc, month desc);
 
+create table if not exists formularios_equipo_config (
+    id uuid primary key default gen_random_uuid(),
+    form_key text not null,
+    equipment_code text not null,
+    config_type text not null default 'corrections',
+    payload jsonb not null,
+    updated_by text,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique (form_key, equipment_code, config_type)
+);
+
+create index if not exists idx_formularios_equipo_config_lookup
+    on formularios_equipo_config (form_key, equipment_code, config_type);
+
 create table if not exists formularios_auditoria (
     id_evento bigserial primary key,
     email text not null,

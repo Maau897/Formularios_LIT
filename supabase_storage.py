@@ -24,6 +24,7 @@ class SupabaseStorageConfig:
     templates_bucket: str = ""
     templates_prefix: str = ""
     traceability_table_name: str = "formularios_trazabilidad"
+    equipment_config_table_name: str = "formularios_equipo_config"
 
 
 _CONFIG = SupabaseStorageConfig(url="", key="", enabled=False)
@@ -41,6 +42,7 @@ def configure_supabase_storage(
     templates_bucket: str = "",
     templates_prefix: str = "",
     traceability_table_name: str = "formularios_trazabilidad",
+    equipment_config_table_name: str = "formularios_equipo_config",
 ) -> None:
     global _CONFIG, _CLIENT
     _CONFIG = SupabaseStorageConfig(
@@ -53,6 +55,7 @@ def configure_supabase_storage(
         templates_bucket=(templates_bucket or "").strip(),
         templates_prefix=(templates_prefix or "").strip().strip("/"),
         traceability_table_name=(traceability_table_name or "").strip() or "formularios_trazabilidad",
+        equipment_config_table_name=(equipment_config_table_name or "").strip() or "formularios_equipo_config",
     )
     _CLIENT = None
 
@@ -116,6 +119,10 @@ def _templates_storage_bucket():
 
 def _traceability_table():
     return _client().table(_CONFIG.traceability_table_name)
+
+
+def _equipment_config_table():
+    return _client().table(_CONFIG.equipment_config_table_name)
 
 
 def _build_storage_asset_path(prefix: str, name: str) -> str:
@@ -192,6 +199,53 @@ def list_periods() -> list[dict[str, Any]]:
         except (KeyError, TypeError, ValueError):
             continue
     return periods
+
+
+def load_equipment_config_payload(
+    form_key: str,
+    equipment_code: str,
+    config_type: str = "corrections",
+) -> dict[str, Any] | None:
+    rows = (
+        _equipment_config_table()
+        .select("payload")
+        .eq("form_key", form_key)
+        .eq("equipment_code", equipment_code)
+        .eq("config_type", config_type)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        return None
+    payload = rows[0].get("payload")
+    return payload if isinstance(payload, dict) else None
+
+
+def save_equipment_config_payload(
+    form_key: str,
+    equipment_code: str,
+    payload: dict[str, Any],
+    *,
+    config_type: str = "corrections",
+    updated_by: str = "",
+) -> None:
+    now_iso = datetime.now(timezone.utc).isoformat()
+    normalized_user = updated_by.strip().lower() or None
+    if not form_key.strip() or not equipment_code.strip() or not config_type.strip():
+        raise ValueError("La configuracion requiere formato, equipo y tipo.")
+    _equipment_config_table().upsert(
+        {
+            "form_key": form_key.strip(),
+            "equipment_code": equipment_code.strip(),
+            "config_type": config_type.strip(),
+            "payload": payload,
+            "updated_by": normalized_user,
+            "updated_at": now_iso,
+        },
+        on_conflict="form_key,equipment_code,config_type",
+    ).execute()
 
 
 def list_signature_assets() -> list[dict[str, str]]:
