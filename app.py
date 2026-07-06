@@ -3802,6 +3802,32 @@ def render_actions(payload: dict[str, Any]) -> None:
         st.caption("Solo responsable, calidad o admin pueden cerrar y exportar el formato.")
 
 
+MAIN_SECTIONS = [
+    "Captura del periodo",
+    "Reportes",
+    "Lista maestra",
+    "Trazabilidad y validacion",
+]
+
+
+def render_main_section_selector() -> str:
+    if hasattr(st, "segmented_control"):
+        return st.segmented_control(
+            "Apartado",
+            options=MAIN_SECTIONS,
+            default=MAIN_SECTIONS[0],
+            key="main_section",
+            label_visibility="collapsed",
+        ) or MAIN_SECTIONS[0]
+    return st.radio(
+        "Apartado",
+        options=MAIN_SECTIONS,
+        horizontal=True,
+        key="main_section",
+        label_visibility="collapsed",
+    )
+
+
 def main() -> None:
     form_keys = list(FORM_DEFINITIONS.keys())
 
@@ -3871,11 +3897,9 @@ def main() -> None:
         st.session_state.period_key = get_period_key(st.session_state.payload)
         st.rerun()
 
-    capture_tab, report_tab, master_tab, traceability_tab = st.tabs(
-        ["Captura del periodo", "Reportes", "Lista maestra", "Trazabilidad y validacion"]
-    )
+    selected_section = render_main_section_selector()
 
-    with capture_tab:
+    if selected_section == "Captura del periodo":
         payload = st.session_state.payload
         render_configuration(payload)
 
@@ -3901,13 +3925,13 @@ def main() -> None:
         render_actions(payload)
 
     payload = st.session_state.payload
-    with report_tab:
+    if selected_section == "Reportes":
         render_reports(payload)
 
-    with master_tab:
+    if selected_section == "Lista maestra":
         render_master_list()
 
-    with traceability_tab:
+    if selected_section == "Trazabilidad y validacion":
         render_traceability_and_validation(payload)
 
 
