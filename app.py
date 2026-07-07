@@ -258,10 +258,12 @@ class DailyCapture:
     corrected_temperatures: list[str]
     secondary_measurements: list[str]
     performed_by_slots: list[str]
+    canceled_slots: list[int]
     verified_by: str
     recorded_on: str
     recorded_on_mode: str = "auto"
     notes: str = ""
+    cancellation_note: str = ""
 
 
 def default_daily_capture(day: int) -> DailyCapture:
@@ -272,6 +274,8 @@ def default_daily_capture(day: int) -> DailyCapture:
         corrected_temperatures=["", "", ""],
         secondary_measurements=["", "", ""],
         performed_by_slots=["", "", ""],
+        canceled_slots=[],
+        cancellation_note="",
         verified_by="",
         recorded_on="",
         recorded_on_mode="auto",
@@ -1401,6 +1405,39 @@ def list_periods_for_equipment(form_key: str, equipment_code: str) -> list[dict[
     return periods
 
 
+def normalize_canceled_slots(value: Any) -> list[int]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, str):
+        raw_values = [item.strip() for item in value.split(",")]
+    elif isinstance(value, list):
+        raw_values = value
+    else:
+        raw_values = [value]
+
+    canceled_slots: set[int] = set()
+    for item in raw_values:
+        try:
+            index = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < len(TIME_SLOTS):
+            canceled_slots.add(index)
+    return sorted(canceled_slots)
+
+
+def is_slot_canceled(record: dict[str, Any], slot_index: int) -> bool:
+    return slot_index in normalize_canceled_slots(record.get("canceled_slots", []))
+
+
+def is_day_fully_canceled(record: dict[str, Any]) -> bool:
+    return len(normalize_canceled_slots(record.get("canceled_slots", []))) >= len(TIME_SLOTS)
+
+
+def active_slot_indices(record: dict[str, Any]) -> list[int]:
+    return [index for index in range(len(TIME_SLOTS)) if not is_slot_canceled(record, index)]
+
+
 def merge_payload_with_saved_data(
     data: dict[str, Any],
     equipment_code: str = DEFAULT_EQUIPMENT_CODE,
@@ -1427,6 +1464,8 @@ def merge_payload_with_saved_data(
         record.setdefault("corrected_temperatures", ["", "", ""])
         record.setdefault("secondary_measurements", ["", "", ""])
         record.setdefault("performed_by_slots", ["", "", ""])
+        record["canceled_slots"] = normalize_canceled_slots(record.get("canceled_slots", []))
+        record.setdefault("cancellation_note", "")
         if not str(record.get("recorded_on_mode", "")).strip():
             record["recorded_on_mode"] = "auto" if not str(record.get("verified_by", "")).strip() else "manual"
 
@@ -1574,6 +1613,24 @@ def compose_observations_export_text(payload: dict[str, Any]) -> str:
     if non_working_days:
         days_text = ", ".join(str(day) for day in non_working_days)
         sections.append(f"* Los dias {days_text} no aplican por marcarse como no laborados.")
+
+    canceled_lines: list[str] = []
+    for day in range(1, 32):
+        record = payload.get("daily_records", {}).get(str(day), {})
+        if not record.get("active", False):
+            continue
+        canceled_slots = normalize_canceled_slots(record.get("canceled_slots", []))
+        if not canceled_slots:
+            continue
+        if len(canceled_slots) >= len(TIME_SLOTS):
+            slots_text = "dia completo"
+        else:
+            slots_text = ", ".join(TIME_SLOTS[index] for index in canceled_slots)
+        note = str(record.get("cancellation_note", "")).strip()
+        suffix = f": {note}" if note else ""
+        canceled_lines.append(f"* Dia {day}: captura cancelada en {slots_text}{suffix}.")
+    if canceled_lines:
+        sections.extend(canceled_lines)
 
     if not change_log:
         return "\n\n".join(sections).strip()
@@ -2125,6 +2182,41 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
     for day in active_days:
         record = payload["daily_records"][str(day)]
         with st.expander(f"Dia {day}", expanded=day == preferred_day):
+            record["canceled_slots"] = normalize_canceled_slots(record.get("canceled_slots", []))
+            cancellation_cols = st.columns([1, 2, 3])
+            full_cancel_key = f"cancel_full_day_{period_key}_{day}"
+            full_day_canceled = cancellation_cols[0].checkbox(
+                "Cancelar dia completo",
+                value=is_day_fully_canceled(record),
+                key=full_cancel_key,
+                disabled=not allow_daily_edits,
+            )
+            if full_day_canceled:
+                record["canceled_slots"] = list(range(len(TIME_SLOTS)))
+                cancellation_cols[1].caption("Las tres capturas del dia se exportaran como N/A.")
+            else:
+                canceled_key = f"canceled_slots_{period_key}_{day}"
+                canceled_default = [] if is_day_fully_canceled(record) and not st.session_state.get(full_cancel_key, False) else record["canceled_slots"]
+                selected_canceled_slots = cancellation_cols[1].multiselect(
+                    "Horarios cancelados",
+                    options=list(range(len(TIME_SLOTS))),
+                    default=canceled_default,
+                    format_func=lambda index: TIME_SLOTS[index],
+                    key=canceled_key,
+                    disabled=not allow_daily_edits,
+                )
+                record["canceled_slots"] = normalize_canceled_slots(selected_canceled_slots)
+
+            note_key = f"cancellation_note_{period_key}_{day}"
+            if note_key not in st.session_state:
+                st.session_state[note_key] = str(record.get("cancellation_note", ""))
+            record["cancellation_note"] = cancellation_cols[2].text_input(
+                "Motivo de cancelacion",
+                key=note_key,
+                disabled=not allow_daily_edits or not record["canceled_slots"],
+                placeholder="Ej. salida temprana, mantenimiento, falla electrica",
+            )
+
             for metric in metrics:
                 metric_label = get_primary_metric_display_label(payload, metric)
                 if len(metrics) > 1 or is_ambient_form(payload):
@@ -2139,27 +2231,41 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                         heading = "%CO2" if payload["metadata"]["form_key"] == "incubadoras" else payload["metadata"].get("secondary_label", "Variable secundaria")
                     st.markdown(f"**{heading}**")
                 metric_cols = st.columns(3)
-                metric_values: list[str] = []
-                corrected_values: list[str] = []
+                metric_values = list(record.get(metric["key"], ["", "", ""]))
+                while len(metric_values) < len(TIME_SLOTS):
+                    metric_values.append("")
+                corrected_values = list(record.get("corrected_temperatures", ["", "", ""]))
+                while len(corrected_values) < len(TIME_SLOTS):
+                    corrected_values.append("")
                 for index, label in enumerate(TIME_SLOTS):
                     input_key = f"{metric['key']}_{period_key}_{day}_{index}"
+                    if is_slot_canceled(record, index):
+                        metric_cols[index].text_input(
+                            f"{metric_label} {label}",
+                            value="N/A",
+                            key=f"{input_key}_canceled_display",
+                            disabled=True,
+                        )
+                        if metric.get("corrected", False):
+                            corrected_values[index] = "N/A"
+                            metric_cols[index].caption("Cancelada: N/A")
+                        continue
                     if input_key not in st.session_state:
-                        st.session_state[input_key] = record[metric["key"]][index]
-                    value = metric_cols[index].text_input(
+                        st.session_state[input_key] = metric_values[index]
+                    metric_values[index] = metric_cols[index].text_input(
                         f"{metric_label} {label}",
                         key=input_key,
                         disabled=not allow_daily_edits,
                         placeholder="-20.123" if metric["unit"] == "°C" else "",
                     )
-                    metric_values.append(value)
                     if metric.get("corrected", False):
                         corrected_value = calculate_corrected_temperature(
-                            value,
+                            metric_values[index],
                             payload["correction_bands"],
                             payload["correction_factors"],
                             payload["correction_operations"],
                         )
-                        corrected_values.append(corrected_value)
+                        corrected_values[index] = corrected_value
                         corrected_display = format_metric_value(payload, metric, corrected_value)
                         metric_cols[index].caption(
                             f"Corregida: {corrected_display}" if corrected_display else "Corregida: pendiente"
@@ -2169,19 +2275,29 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                     record["corrected_temperatures"] = corrected_values
 
             actor_cols = st.columns(3)
-            performed_by_slots = []
+            performed_by_slots = list(record.get("performed_by_slots", ["", "", ""]))
+            while len(performed_by_slots) < len(TIME_SLOTS):
+                performed_by_slots.append("")
             for index, label in enumerate(TIME_SLOTS):
                 input_key = f"performed_{period_key}_{day}_{index}"
+                if is_slot_canceled(record, index):
+                    actor_cols[index].text_input(
+                        f"Realizo {label}",
+                        value="N/A",
+                        key=f"{input_key}_canceled_display",
+                        disabled=True,
+                    )
+                    actor_cols[index].caption("Captura cancelada")
+                    continue
                 if input_key not in st.session_state:
-                    st.session_state[input_key] = record["performed_by_slots"][index]
-                performed_value = actor_cols[index].text_input(
+                    st.session_state[input_key] = performed_by_slots[index]
+                performed_by_slots[index] = actor_cols[index].text_input(
                     f"Realizo {label}",
                     key=input_key,
                     disabled=not allow_daily_edits,
                 )
-                performed_by_slots.append(performed_value)
-                performed_signature_name = get_signature_display_name(performed_value)
-                if performed_value.strip():
+                performed_signature_name = get_signature_display_name(performed_by_slots[index])
+                if performed_by_slots[index].strip():
                     if performed_signature_name:
                         actor_cols[index].caption(f"Firma detectada: {performed_signature_name}")
                     else:
@@ -2197,7 +2313,7 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
             record["verified_by"] = verifier_cols[0].text_input(
                 "Verifico bloque del dia",
                 key=verified_key,
-                disabled=not allow_verification_edits,
+                disabled=not allow_verification_edits or is_day_fully_canceled(record),
             )
             verified_signature_name = get_signature_display_name(record["verified_by"])
             if record["verified_by"].strip():
@@ -2230,7 +2346,7 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                     )[1],
                 ),
                 key=date_key,
-                disabled=not allow_verification_edits,
+                disabled=not allow_verification_edits or is_day_fully_canceled(record),
             )
             record["recorded_on"] = selected_date.isoformat()
             if str(record["verified_by"]).strip():
@@ -2397,11 +2513,16 @@ def validate_payload(payload: dict[str, Any]) -> list[str]:
         record = payload["daily_records"][str(day)]
         if not record["active"]:
             continue
+        active_slots = active_slot_indices(record)
+        if not active_slots:
+            continue
         for metric in definition["metrics"]:
-            if not all(value.strip() for value in record[metric["key"]]):
+            metric_values = record.get(metric["key"], ["", "", ""])
+            if not all(str(metric_values[index] if index < len(metric_values) else "").strip() for index in active_slots):
                 metric_label = get_primary_metric_display_label(payload, metric).lower()
                 errors.append(f"Dia {day}: faltan capturas de {metric_label}.")
-        if not all(value.strip() for value in record["performed_by_slots"]):
+        performed_values = record.get("performed_by_slots", ["", "", ""])
+        if not all(str(performed_values[index] if index < len(performed_values) else "").strip() for index in active_slots):
             errors.append(f"Dia {day}: faltan responsables en una o mas horas.")
         if not record["verified_by"].strip():
             errors.append(f"Dia {day}: falta 'Verifico'.")
@@ -2453,6 +2574,9 @@ def build_history_dataframe(payload: dict[str, Any], days_back: int) -> pd.DataF
             record = period_payload["daily_records"][str(day)]
             if not record["active"]:
                 continue
+            active_slots = active_slot_indices(record)
+            if not active_slots:
+                continue
 
             recorded_date = parse_optional_iso_date(record.get("recorded_on", "")) or get_row_period_date(period_payload, day)
             if recorded_date < cutoff or recorded_date > date.today():
@@ -2464,6 +2588,10 @@ def build_history_dataframe(payload: dict[str, Any], days_back: int) -> pd.DataF
                 else record["measured_temperatures"]
             )
             primary_numeric = [parse_measurement_number(value) for value in primary_values]
+            primary_numeric = [
+                numeric_value if index in active_slots else None
+                for index, numeric_value in enumerate(primary_numeric)
+            ]
             if all(value is None for value in primary_numeric):
                 continue
 
@@ -2480,6 +2608,10 @@ def build_history_dataframe(payload: dict[str, Any], days_back: int) -> pd.DataF
 
             if secondary_metric is not None:
                 secondary_numeric = [parse_measurement_number(value) for value in record[secondary_metric["key"]]]
+                secondary_numeric = [
+                    numeric_value if index in active_slots else None
+                    for index, numeric_value in enumerate(secondary_numeric)
+                ]
                 valid_secondary = [float(value) for value in secondary_numeric if value is not None]
                 row["promedio_secundario"] = (
                     sum(valid_secondary) / len(valid_secondary) if valid_secondary else None
@@ -3077,6 +3209,16 @@ def populate_template(payload: dict[str, Any]) -> BytesIO:
         primary_metric = definition["metrics"][0]
         primary_unit = primary_metric["unit"]
         for index, temperature in enumerate(primary_values):
+            if is_slot_canceled(record, index):
+                write_slot_value(
+                    worksheet,
+                    row_group["metric_1"],
+                    start_col + index,
+                    "N/A",
+                    font_size=18,
+                    rotate_like_hours=True,
+                )
+                continue
             formatted_value = format_metric_value(payload, primary_metric, temperature)
             write_slot_value(
                 worksheet,
@@ -3090,6 +3232,16 @@ def populate_template(payload: dict[str, Any]) -> BytesIO:
         if len(definition["metrics"]) > 1 and "metric_2" in row_group:
             second_metric = definition["metrics"][1]
             for index, value in enumerate(record[second_metric["key"]]):
+                if is_slot_canceled(record, index):
+                    write_slot_value(
+                        worksheet,
+                        row_group["metric_2"],
+                        start_col + index,
+                        "N/A",
+                        font_size=18,
+                        rotate_like_hours=True,
+                    )
+                    continue
                 formatted_second_value = format_metric_value(payload, second_metric, value)
                 write_slot_value(
                     worksheet,
@@ -3101,6 +3253,16 @@ def populate_template(payload: dict[str, Any]) -> BytesIO:
                 )
 
         for index, performed_by in enumerate(record["performed_by_slots"]):
+            if is_slot_canceled(record, index):
+                write_slot_value(
+                    worksheet,
+                    row_group["performed_by"],
+                    start_col + index,
+                    "CANCELADO",
+                    font_size=18,
+                    rotate_like_hours=True,
+                )
+                continue
             write_signature_or_text_slot(
                 worksheet,
                 row_group["performed_by"],
@@ -3109,6 +3271,10 @@ def populate_template(payload: dict[str, Any]) -> BytesIO:
                 width=70,
                 height=170,
             )
+        if is_day_fully_canceled(record):
+            write_day_status(worksheet, row_group["verified_by"], start_col, "")
+            write_day_status(worksheet, row_group["date"], start_col, "")
+            continue
         write_signature_or_text_status(
             worksheet,
             row_group["verified_by"],
