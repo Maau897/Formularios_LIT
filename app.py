@@ -3192,12 +3192,12 @@ def populate_template(payload: dict[str, Any]) -> BytesIO:
                     font_size=18,
                     rotate_like_hours=True,
                 )
-            write_day_status(worksheet, row_group["verified_by"], start_col, "")
+            write_day_status(worksheet, row_group["verified_by"], start_col, "N/A")
             write_day_status(
                 worksheet,
                 row_group["date"],
                 start_col,
-                "",
+                "N/A",
             )
             continue
 
@@ -3272,8 +3272,8 @@ def populate_template(payload: dict[str, Any]) -> BytesIO:
                 height=170,
             )
         if is_day_fully_canceled(record):
-            write_day_status(worksheet, row_group["verified_by"], start_col, "")
-            write_day_status(worksheet, row_group["date"], start_col, "")
+            write_day_status(worksheet, row_group["verified_by"], start_col, "N/A")
+            write_day_status(worksheet, row_group["date"], start_col, "N/A")
             continue
         write_signature_or_text_status(
             worksheet,
