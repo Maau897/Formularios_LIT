@@ -40,6 +40,7 @@ from microsoft_graph import (
 )
 from supabase_users import (
     aprobar_usuario,
+    actualizar_nombre_usuario,
     actualizar_rol_usuario,
     autenticar_usuario,
     configure_supabase_users,
@@ -47,9 +48,11 @@ from supabase_users import (
     eliminar_usuario,
     listar_eventos_auditoria,
     listar_usuarios,
+    promover_usuarios_aprobados_a_admin,
     registrar_evento_auditoria,
     obtener_usuarios_pendientes,
     registrar_usuario,
+    sincronizar_usuarios_conocidos,
     supabase_users_enabled,
 )
 from supabase_storage import (
@@ -245,8 +248,20 @@ DEFAULT_FORM_KEY = "congeladores"
 DEFAULT_EQUIPMENT_CODE = FORM_DEFINITIONS[DEFAULT_FORM_KEY]["default_equipment"]
 EQUIPMENT_CONFIG_CACHE_VERSION = "2026-06-03-admin-range-editing"
 TEMPERATURE_DECIMAL_PLACES = 3
-ROLES_USUARIO = ["captura", "responsable", "auditor", "calidad", "admin"]
-SENSITIVE_EDITOR_ROLES = {"calidad", "admin"}
+ROLES_USUARIO = ["captura", "calidad", "admin"]
+LEGACY_ROLE_MAP = {
+    "responsable": "admin",
+    "auditor": "calidad",
+}
+SENSITIVE_EDITOR_ROLES = {"admin"}
+KNOWN_USER_DISPLAY_NAMES = {
+    "itzbloodcor@gmail.com": "Itzel",
+    "miltoonnietoo.66@gmail.com": "Milton",
+    "mercedesviettri@gmail.com": "Mercedes",
+    "drhzamudio@gmail.com": "Horacio",
+    "rodolfo_chvz@outlook.com": "Rodolfo",
+    "helios.avel@gmail.com": "Angelica",
+}
 AUTOSAVE_DEBOUNCE_SECONDS = 3.0
 LOCAL_TIMEZONE = ZoneInfo("America/Mexico_City")
 
@@ -314,6 +329,15 @@ def configure_users_backend() -> None:
             crear_admin_inicial(admin_email, admin_password)
         except Exception:
             pass
+    if supabase_users_enabled():
+        try:
+            sincronizar_usuarios_conocidos(KNOWN_USER_DISPLAY_NAMES, force_admin=True)
+        except Exception:
+            pass
+        try:
+            promover_usuarios_aprobados_a_admin()
+        except Exception:
+            pass
 
 
 def configure_storage_backend() -> None:
@@ -345,13 +369,38 @@ def normalize_user_role(rol: Any, es_admin: bool) -> str:
     if es_admin:
         return "admin"
     normalized = str(rol or "captura").strip().lower()
+    normalized = LEGACY_ROLE_MAP.get(normalized, normalized)
     return normalized if normalized in ROLES_USUARIO else "captura"
+
+
+def normalize_user_display_name(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(value or "").strip())
+    text = "".join(character for character in text if not unicodedata.combining(character))
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def get_known_display_name(email: str) -> str:
+    return KNOWN_USER_DISPLAY_NAMES.get(email.strip().lower(), "")
+
+
+def get_current_user_display_name() -> str:
+    stored_name = normalize_user_display_name(st.session_state.get("usuario_nombre", ""))
+    if stored_name:
+        return stored_name
+    email = str(st.session_state.get("usuario_email", "")).strip().lower()
+    known_name = get_known_display_name(email)
+    if known_name:
+        return known_name
+    local_part = email.split("@", 1)[0] if email else ""
+    return normalize_user_display_name(local_part.replace(".", " ").replace("_", " "))
 
 
 def initialize_auth_state() -> None:
     defaults = {
         "autenticado": False,
         "usuario_email": "",
+        "usuario_nombre": "",
         "es_admin": False,
         "rol_usuario": "captura",
     }
@@ -424,27 +473,31 @@ def can_edit_correction_settings() -> bool:
 
 
 def can_edit_schedule() -> bool:
-    return current_user_role() in {"responsable", "calidad", "admin"}
+    return current_user_role() == "admin"
 
 
 def can_edit_daily_records() -> bool:
-    return current_user_role() in {"captura", "responsable", "calidad", "admin"}
+    return current_user_role() in {"captura", "admin"}
+
+
+def can_verify_daily_records() -> bool:
+    return current_user_role() in {"captura", "admin"}
 
 
 def can_close_period() -> bool:
-    return current_user_role() in {"responsable", "calidad", "admin"}
+    return current_user_role() in {"calidad", "admin"}
 
 
 def can_manage_traceability() -> bool:
-    return current_user_role() in {"responsable", "calidad", "admin"}
+    return current_user_role() == "admin"
 
 
 def can_edit_master_list() -> bool:
-    return current_user_role() in {"responsable", "calidad", "admin"}
+    return current_user_role() == "admin"
 
 
 def can_export_period() -> bool:
-    return current_user_role() in {"responsable", "calidad", "admin"}
+    return current_user_role() in {"calidad", "admin"}
 
 
 def render_auth_screen() -> None:
@@ -465,6 +518,9 @@ def render_auth_screen() -> None:
                 if result["ok"]:
                     st.session_state["autenticado"] = True
                     st.session_state["usuario_email"] = result["email"]
+                    st.session_state["usuario_nombre"] = normalize_user_display_name(
+                        result.get("nombre") or get_known_display_name(result["email"])
+                    )
                     st.session_state["es_admin"] = result["es_admin"]
                     st.session_state["rol_usuario"] = result.get("rol", "captura")
                     log_activity("inicio_sesion", "Ingreso a la app")
@@ -476,11 +532,12 @@ def render_auth_screen() -> None:
 
     with register_tab:
         email_register = st.text_input("Correo institucional o personal", key="register_email")
+        name_register = st.text_input("Nombre para firma automatica", key="register_name")
         password_register = st.text_input("Contrasena", type="password", key="register_password")
         password_register_2 = st.text_input("Confirmar contrasena", type="password", key="register_password_2")
         requested_role = st.selectbox(
             "Perfil solicitado",
-            ["captura", "responsable", "auditor", "calidad"],
+            ["captura", "calidad"],
             format_func=lambda value: value.capitalize(),
             key="register_role",
         )
@@ -488,10 +545,17 @@ def render_auth_screen() -> None:
             try:
                 if not email_register or not password_register:
                     st.warning("Completa correo y contrasena.")
+                elif not name_register.strip():
+                    st.warning("Captura el nombre para la firma automatica.")
                 elif password_register != password_register_2:
                     st.warning("Las contrasenas no coinciden.")
                 else:
-                    registrar_usuario(email_register, password_register, requested_role)
+                    registrar_usuario(
+                        email_register,
+                        password_register,
+                        requested_role,
+                        normalize_user_display_name(name_register),
+                    )
                     st.success("Cuenta creada. Queda pendiente de aprobacion.")
             except Exception as exc:
                 st.error(f"No se pudo crear la cuenta: {exc}")
@@ -507,8 +571,9 @@ def render_user_admin_sidebar() -> None:
         pending_users = obtener_usuarios_pendientes()
         st.sidebar.markdown("**Solicitudes pendientes**")
         if pending_users:
-            for user_id, email, registered_at in pending_users:
+            for user_id, email, name, registered_at in pending_users:
                 st.sidebar.write(f"{email} - {registered_at}")
+                st.sidebar.caption(f"Nombre: {name or get_known_display_name(email) or 'Sin capturar'}")
                 approval_role = st.sidebar.selectbox(
                     f"Rol para {email}",
                     ROLES_USUARIO,
@@ -525,24 +590,38 @@ def render_user_admin_sidebar() -> None:
             st.sidebar.caption("No hay usuarios pendientes.")
 
         st.sidebar.markdown("**Roles activos**")
-        approved_users = [row for row in listar_usuarios() if row[2] == 1]
-        admin_count = sum(1 for row in approved_users if row[3] == 1)
+        approved_users = [row for row in listar_usuarios() if row[3] == 1]
+        admin_count = sum(1 for row in approved_users if row[4] == 1)
         if approved_users:
-            for user_id, email, _, _, role, _ in approved_users:
+            for user_id, email, name, _, is_admin, role, _ in approved_users:
+                normalized_role = normalize_user_role(role, bool(is_admin))
+                display_name_key = f"name_user_{user_id}"
+                if display_name_key not in st.session_state:
+                    st.session_state[display_name_key] = normalize_user_display_name(name or get_known_display_name(email))
+                edited_name = st.sidebar.text_input(
+                    f"Nombre de {email}",
+                    key=display_name_key,
+                )
                 new_role = st.sidebar.selectbox(
                     email,
                     ROLES_USUARIO,
-                    index=ROLES_USUARIO.index(role if role in ROLES_USUARIO else "captura"),
+                    index=ROLES_USUARIO.index(normalized_role),
                     format_func=lambda value: value.capitalize(),
                     key=f"role_user_{user_id}",
                 )
-                if st.sidebar.button("Actualizar rol", key=f"update_role_{user_id}", use_container_width=True):
+                if st.sidebar.button("Actualizar usuario", key=f"update_role_{user_id}", use_container_width=True):
+                    normalized_name = normalize_user_display_name(edited_name)
+                    if normalized_name:
+                        try:
+                            actualizar_nombre_usuario(user_id, normalized_name)
+                        except Exception:
+                            pass
                     actualizar_rol_usuario(user_id, new_role)
-                    log_activity("actualizar_rol", f"{email} -> {new_role}")
-                    st.sidebar.success(f"Rol de {email} actualizado a {new_role}.")
+                    log_activity("actualizar_usuario", f"{email} -> {new_role} | {normalized_name}")
+                    st.sidebar.success(f"Usuario {email} actualizado.")
                     st.rerun()
                 can_delete_user = email != str(st.session_state.get("usuario_email", "")).strip().lower()
-                would_remove_last_admin = role == "admin" and admin_count <= 1
+                would_remove_last_admin = normalized_role == "admin" and admin_count <= 1
                 if st.sidebar.button("Quitar acceso", key=f"delete_user_{user_id}", use_container_width=True):
                     if not can_delete_user:
                         st.sidebar.warning("No puedes quitar tu propio acceso desde aqui.")
@@ -1172,6 +1251,70 @@ def save_local_correction_settings(form_key: str, equipment_code: str, settings:
         json.dumps(settings, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def get_global_period_config_file(year: int, month: int) -> Path:
+    ensure_data_dir()
+    return EQUIPMENT_CONFIG_DIR / f"global_non_working_days_{int(year)}_{int(month):02d}.json"
+
+
+def normalize_non_working_days(value: Any) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    days: set[int] = set()
+    for item in value:
+        try:
+            day = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= day <= 31:
+            days.add(day)
+    return sorted(days)
+
+
+def load_shared_non_working_days(year: int, month: int) -> list[int] | None:
+    config_type = f"non_working_days:{int(year)}:{int(month):02d}"
+    if supabase_storage_enabled():
+        try:
+            payload = load_remote_equipment_config_payload("__global__", "__global__", config_type)
+            if isinstance(payload, dict):
+                return normalize_non_working_days(payload.get("non_working_days", []))
+        except Exception:
+            pass
+
+    config_file = get_global_period_config_file(year, month)
+    if config_file.exists():
+        try:
+            payload = json.loads(config_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        if isinstance(payload, dict):
+            return normalize_non_working_days(payload.get("non_working_days", []))
+    return None
+
+
+def save_shared_non_working_days(year: int, month: int, non_working_days: list[int]) -> str:
+    normalized_days = normalize_non_working_days(non_working_days)
+    payload = {"year": int(year), "month": int(month), "non_working_days": normalized_days}
+    config_type = f"non_working_days:{int(year)}:{int(month):02d}"
+    if supabase_storage_enabled():
+        try:
+            save_remote_equipment_config_payload(
+                "__global__",
+                "__global__",
+                payload,
+                config_type=config_type,
+                updated_by=str(st.session_state.get("usuario_email", "")).strip(),
+            )
+            return "Supabase"
+        except Exception:
+            pass
+
+    get_global_period_config_file(year, month).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return "Local JSON"
 
 
 def load_shared_correction_settings(form_key: str, equipment_code: str) -> dict[str, Any] | None:
@@ -1850,9 +1993,13 @@ def render_sidebar(
     st.sidebar.title("Formatos")
     st.sidebar.write(f"Sesion: `{st.session_state.get('usuario_email', '')}`")
     st.sidebar.write(f"Perfil: `{st.session_state.get('rol_usuario', 'captura')}`")
+    display_name = get_current_user_display_name()
+    if display_name:
+        st.sidebar.write(f"Firma automatica: `{display_name}`")
     if st.sidebar.button("Cerrar sesion", use_container_width=True):
         st.session_state["autenticado"] = False
         st.session_state["usuario_email"] = ""
+        st.session_state["usuario_nombre"] = ""
         st.session_state["es_admin"] = False
         st.session_state["rol_usuario"] = "captura"
         st.rerun()
@@ -2121,9 +2268,13 @@ def render_non_working_days(payload: dict[str, Any]) -> None:
     allow_schedule_edits = can_edit_schedule()
     if not allow_schedule_edits:
         st.caption("Este apartado esta en solo lectura para tu perfil.")
-    period_key = st.session_state.get("period_key", get_period_key(payload))
+    year = int(payload["metadata"]["year"])
+    month = int(payload["metadata"]["month"])
+    shared_days = load_shared_non_working_days(year, month)
+    if shared_days is not None:
+        payload["non_working_days"] = shared_days
     days = list(range(1, 32))
-    selector_key = f"non_working_days_{period_key}"
+    selector_key = f"global_non_working_days_{year}_{month:02d}"
     if selector_key not in st.session_state:
         st.session_state[selector_key] = list(sorted(int(day) for day in payload["non_working_days"]))
 
@@ -2146,6 +2297,8 @@ def render_non_working_days(payload: dict[str, Any]) -> None:
         )
 
     payload["non_working_days"] = sorted(int(day) for day in (selected_days or []))
+    if allow_schedule_edits:
+        save_shared_non_working_days(year, month, payload["non_working_days"])
 
     if payload["non_working_days"]:
         st.caption(
@@ -2164,7 +2317,7 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
     copy = get_format_specific_copy(payload)
     st.caption(copy["daily_intro"])
     allow_daily_edits = can_edit_daily_records()
-    allow_verification_edits = can_close_period()
+    allow_verification_edits = can_verify_daily_records()
     if not allow_daily_edits:
         st.caption("La captura diaria esta en solo lectura para tu perfil.")
     period_key = st.session_state.get("period_key", get_period_key(payload))
@@ -2179,7 +2332,12 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
         return
 
     preferred_day = get_preferred_capture_day(payload, active_days)
-    for day in active_days:
+    current_slot_index = get_current_time_slot_index() if is_current_period(payload) else None
+    ordered_active_days = get_ordered_active_days(payload, active_days, preferred_day)
+    if is_current_period(payload):
+        slot_text = TIME_SLOTS[current_slot_index] if current_slot_index is not None else "fuera de horario de captura"
+        st.caption(f"Dia sugerido: {preferred_day}. Bloque sugerido por hora del sistema: {slot_text}.")
+    for day in ordered_active_days:
         record = payload["daily_records"][str(day)]
         with st.expander(f"Dia {day}", expanded=day == preferred_day):
             record["canceled_slots"] = normalize_canceled_slots(record.get("canceled_slots", []))
@@ -2217,6 +2375,7 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                 placeholder="Ej. salida temprana, mantenimiento, falla electrica",
             )
 
+            captured_slot_flags = [False, False, False]
             for metric in metrics:
                 metric_label = get_primary_metric_display_label(payload, metric)
                 if len(metrics) > 1 or is_ambient_form(payload):
@@ -2239,9 +2398,12 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                     corrected_values.append("")
                 for index, label in enumerate(TIME_SLOTS):
                     input_key = f"{metric['key']}_{period_key}_{day}_{index}"
+                    slot_label = f"{metric_label} {label}"
+                    if day == preferred_day and index == current_slot_index:
+                        slot_label = f"{slot_label} (bloque actual)"
                     if is_slot_canceled(record, index):
                         metric_cols[index].text_input(
-                            f"{metric_label} {label}",
+                            slot_label,
                             value="N/A",
                             key=f"{input_key}_canceled_display",
                             disabled=True,
@@ -2253,11 +2415,13 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                     if input_key not in st.session_state:
                         st.session_state[input_key] = metric_values[index]
                     metric_values[index] = metric_cols[index].text_input(
-                        f"{metric_label} {label}",
+                        slot_label,
                         key=input_key,
                         disabled=not allow_daily_edits,
                         placeholder="-20.123" if metric["unit"] == "°C" else "",
                     )
+                    if metric_values[index].strip():
+                        captured_slot_flags[index] = True
                     if metric.get("corrected", False):
                         corrected_value = calculate_corrected_temperature(
                             metric_values[index],
@@ -2278,21 +2442,28 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
             performed_by_slots = list(record.get("performed_by_slots", ["", "", ""]))
             while len(performed_by_slots) < len(TIME_SLOTS):
                 performed_by_slots.append("")
+            automatic_signature_name = get_current_user_display_name()
             for index, label in enumerate(TIME_SLOTS):
                 input_key = f"performed_{period_key}_{day}_{index}"
+                performed_label = f"Realizo {label}"
+                if day == preferred_day and index == current_slot_index:
+                    performed_label = f"{performed_label} (bloque actual)"
                 if is_slot_canceled(record, index):
                     actor_cols[index].text_input(
-                        f"Realizo {label}",
+                        performed_label,
                         value="N/A",
                         key=f"{input_key}_canceled_display",
                         disabled=True,
                     )
                     actor_cols[index].caption("Captura cancelada")
                     continue
+                if captured_slot_flags[index] and automatic_signature_name and not performed_by_slots[index].strip():
+                    performed_by_slots[index] = automatic_signature_name
+                    st.session_state[input_key] = automatic_signature_name
                 if input_key not in st.session_state:
                     st.session_state[input_key] = performed_by_slots[index]
                 performed_by_slots[index] = actor_cols[index].text_input(
-                    f"Realizo {label}",
+                    performed_label,
                     key=input_key,
                     disabled=not allow_daily_edits,
                 )
@@ -2372,11 +2543,11 @@ def parse_streamlit_date(value: str) -> date:
     try:
         return datetime.fromisoformat(value).date()
     except ValueError:
-        return date.today()
+        return get_local_now().date()
 
 
 def is_current_period(payload: dict[str, Any]) -> bool:
-    today = date.today()
+    today = get_local_now().date()
     return (
         int(payload["metadata"]["year"]) == today.year
         and int(payload["metadata"]["month"]) == today.month
@@ -2384,10 +2555,31 @@ def is_current_period(payload: dict[str, Any]) -> bool:
 
 
 def get_preferred_capture_day(payload: dict[str, Any], active_days: list[int]) -> int:
-    today = date.today()
+    today = get_local_now().date()
     if is_current_period(payload) and today.day in active_days:
         return today.day
     return active_days[0]
+
+
+def get_current_time_slot_index() -> int | None:
+    now_time = get_local_now().time()
+    slot_ranges = [
+        (7, 10),
+        (11, 14),
+        (15, 18),
+    ]
+    for index, (start_hour, end_hour) in enumerate(slot_ranges):
+        if start_hour <= now_time.hour < end_hour:
+            return index
+    return None
+
+
+def get_ordered_active_days(payload: dict[str, Any], active_days: list[int], preferred_day: int) -> list[int]:
+    if not active_days:
+        return []
+    if is_current_period(payload) and preferred_day in active_days:
+        return [preferred_day, *[day for day in active_days if day != preferred_day]]
+    return active_days
 
 
 def get_row_period_date(payload: dict[str, Any], day: int) -> date:
@@ -2883,7 +3075,7 @@ def render_master_list() -> None:
                         st.rerun()
     else:
         st.dataframe(dataframe.drop(columns=["_row_index"], errors="ignore"), use_container_width=True, hide_index=True)
-        st.caption("Solo responsable, calidad o admin pueden editar la lista maestra desde la app.")
+        st.caption("Solo admin puede editar la lista maestra desde la app.")
 
 
 def render_reports(payload: dict[str, Any]) -> None:
@@ -3095,7 +3287,7 @@ def render_traceability_and_validation(payload: dict[str, Any]) -> None:
                     log_activity("eliminar_trazabilidad", TRACEABILITY_TYPES.get(entry["entry_type"], entry["entry_type"]), payload)
                     st.rerun()
     else:
-        st.caption("Solo responsable, calidad o admin pueden programar o actualizar esta agenda.")
+        st.caption("Solo admin puede programar o actualizar esta agenda.")
 
 
 def populate_template(payload: dict[str, Any]) -> BytesIO:
@@ -3958,7 +4150,7 @@ def render_actions(payload: dict[str, Any]) -> None:
         st.rerun()
 
     if not allow_export:
-        st.caption("Solo responsable, calidad o admin pueden cerrar y exportar el formato.")
+        st.caption("Solo calidad o admin pueden cerrar y exportar el formato.")
 
 
 MAIN_SECTIONS = [

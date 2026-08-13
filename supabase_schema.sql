@@ -1,5 +1,32 @@
 create extension if not exists pgcrypto;
 
+alter table if exists usuarios_app
+    add column if not exists nombre text;
+
+update usuarios_app
+set nombre = case lower(email)
+    when 'itzbloodcor@gmail.com' then 'Itzel'
+    when 'miltoonnietoo.66@gmail.com' then 'Milton'
+    when 'mercedesviettri@gmail.com' then 'Mercedes'
+    when 'drhzamudio@gmail.com' then 'Horacio'
+    when 'rodolfo_chvz@outlook.com' then 'Rodolfo'
+    when 'helios.avel@gmail.com' then 'Angelica'
+    else nombre
+end
+where lower(email) in (
+    'itzbloodcor@gmail.com',
+    'miltoonnietoo.66@gmail.com',
+    'mercedesviettri@gmail.com',
+    'drhzamudio@gmail.com',
+    'rodolfo_chvz@outlook.com',
+    'helios.avel@gmail.com'
+);
+
+update usuarios_app
+set rol = 'admin',
+    es_admin = true
+where aprobado = true;
+
 create table if not exists formularios_periodos (
     id uuid primary key default gen_random_uuid(),
     form_key text not null,
