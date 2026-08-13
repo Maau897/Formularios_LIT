@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import bcrypt
+try:
+    import bcrypt
+    BCRYPT_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    bcrypt = None
+    BCRYPT_AVAILABLE = False
 
 try:
     from supabase import Client, create_client
@@ -46,7 +51,7 @@ def configure_supabase_users(
 
 
 def supabase_users_enabled() -> bool:
-    return bool(SUPABASE_SDK_AVAILABLE and _CONFIG.enabled and _CONFIG.url and _CONFIG.key)
+    return bool(BCRYPT_AVAILABLE and SUPABASE_SDK_AVAILABLE and _CONFIG.enabled and _CONFIG.url and _CONFIG.key)
 
 
 def get_users_backend_label() -> str:
@@ -71,10 +76,14 @@ def _audit_table():
 
 
 def _hash_password(password: str) -> str:
+    if not BCRYPT_AVAILABLE:
+        raise RuntimeError("La dependencia bcrypt no esta instalada.")
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def _verify_password(password: str, password_hash: str) -> bool:
+    if not BCRYPT_AVAILABLE:
+        raise RuntimeError("La dependencia bcrypt no esta instalada.")
     return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 
 
