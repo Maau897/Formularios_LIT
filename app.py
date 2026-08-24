@@ -2323,12 +2323,26 @@ def render_non_working_days(payload: dict[str, Any]) -> None:
     else:
         st.caption("No hay dias marcados como no laborados.")
 
+    apply_non_working_days_to_records(payload)
+
+
+def refresh_shared_non_working_days(payload: dict[str, Any]) -> None:
+    year = int(payload["metadata"]["year"])
+    month = int(payload["metadata"]["month"])
+    shared_days = load_shared_non_working_days(year, month)
+    if shared_days is not None:
+        payload["non_working_days"] = shared_days
+    apply_non_working_days_to_records(payload)
+
+
+def apply_non_working_days_to_records(payload: dict[str, Any]) -> None:
+    non_working_days = set(normalize_non_working_days(payload.get("non_working_days", [])))
     for day in range(1, 32):
-        payload["daily_records"][str(day)]["active"] = day not in payload["non_working_days"]
+        payload["daily_records"][str(day)]["active"] = day not in non_working_days
 
 
 def render_daily_capture(payload: dict[str, Any]) -> None:
-    st.subheader("3. Captura diaria")
+    st.subheader("Captura diaria" if is_capture_role() else "3. Captura diaria")
     copy = get_format_specific_copy(payload)
     st.caption(copy["daily_intro"])
     allow_daily_edits = can_edit_daily_records()
@@ -4306,7 +4320,8 @@ def main() -> None:
 
     if selected_section == "Captura del periodo":
         payload = st.session_state.payload
-        render_configuration(payload)
+        if not is_capture_role():
+            render_configuration(payload)
 
         current_period_key = get_period_key(payload)
         if current_period_key != previous_period_key:
@@ -4324,10 +4339,15 @@ def main() -> None:
         st.session_state.period_key = current_period_key
         payload = st.session_state.payload
 
-        render_non_working_days(payload)
-        render_daily_capture(payload)
-        render_monthly_closure(payload)
-        render_actions(payload)
+        if is_capture_role():
+            refresh_shared_non_working_days(payload)
+            render_daily_capture(payload)
+            maybe_autosave_payload(payload)
+        else:
+            render_non_working_days(payload)
+            render_daily_capture(payload)
+            render_monthly_closure(payload)
+            render_actions(payload)
 
     payload = st.session_state.payload
     if selected_section == "Reportes":
