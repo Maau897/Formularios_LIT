@@ -4254,6 +4254,7 @@ def main() -> None:
     st.set_page_config(
         page_title="Formularios Digitales",
         layout="wide",
+        initial_sidebar_state="collapsed",
     )
     configure_users_backend()
     configure_storage_backend()
