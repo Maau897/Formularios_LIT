@@ -22,6 +22,20 @@ where lower(email) in (
     'helios.avel@gmail.com'
 );
 
+-- Reparacion del cambio temporal que promovio cuentas de captura a admin.
+-- Ajusta o elimina correos aqui si alguno debe quedar como calidad/admin.
+update usuarios_app
+set rol = 'captura',
+    es_admin = false
+where lower(email) in (
+    'itzbloodcor@gmail.com',
+    'miltoonnietoo.66@gmail.com',
+    'mercedesviettri@gmail.com',
+    'drhzamudio@gmail.com',
+    'rodolfo_chvz@outlook.com',
+    'helios.avel@gmail.com'
+);
+
 create table if not exists formularios_periodos (
     id uuid primary key default gen_random_uuid(),
     form_key text not null,

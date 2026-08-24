@@ -361,11 +361,11 @@ def configure_microsoft_backend() -> None:
 
 
 def normalize_user_role(rol: Any, es_admin: bool) -> str:
-    if es_admin:
-        return "admin"
     normalized = str(rol or "captura").strip().lower()
     normalized = LEGACY_ROLE_MAP.get(normalized, normalized)
-    return normalized if normalized in ROLES_USUARIO else "captura"
+    if normalized in ROLES_USUARIO:
+        return normalized
+    return "admin" if es_admin else "captura"
 
 
 def normalize_user_display_name(value: Any) -> str:
