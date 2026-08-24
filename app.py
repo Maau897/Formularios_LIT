@@ -500,6 +500,14 @@ def can_export_period() -> bool:
     return current_user_role() in {"calidad", "admin"}
 
 
+def is_capture_role() -> bool:
+    return current_user_role() == "captura"
+
+
+def is_admin_role() -> bool:
+    return current_user_role() == "admin"
+
+
 def render_auth_screen() -> None:
     st.title("Acceso al sistema")
 
@@ -2021,13 +2029,22 @@ def render_sidebar(
     st.sidebar.write(
         f"Mes de trabajo: `{MONTHS[payload['metadata']['month']]} {payload['metadata']['year']}`"
     )
-    st.sidebar.write(f"Laboratorio: `{payload['metadata']['laboratory']}`")
-    st.sidebar.write(f"Equipo / instrumento: `{payload['metadata']['equipment_name']}`")
+    if not is_capture_role():
+        st.sidebar.write(f"Laboratorio: `{payload['metadata']['laboratory']}`")
+        st.sidebar.write(f"Equipo / instrumento: `{payload['metadata']['equipment_name']}`")
     render_user_admin_sidebar()
     return selected_form_key, selected_equipment
 
 
 def render_configuration(payload: dict[str, Any]) -> None:
+    if is_capture_role():
+        st.subheader("Captura rapida")
+        st.info(
+            "Modo captura: registra el dia sugerido, el bloque correspondiente y guarda. "
+            "Tu nombre se completa automaticamente en Realizo cuando captures una lectura."
+        )
+        return
+
     st.subheader("1. Configuracion del mes")
     metadata = payload["metadata"]
     correction_bands = payload["correction_bands"]
@@ -2264,7 +2281,10 @@ def render_configuration(payload: dict[str, Any]) -> None:
 
 def render_non_working_days(payload: dict[str, Any]) -> None:
     st.subheader("2. Dias no laborados")
-    st.caption("Marca manualmente los dias que no aplican para la toma. En telefono y tableta se muestran como fichas para que sea mas facil seleccionarlos.")
+    st.caption(
+        "Marca los dias que no aplican para la toma. Esta seleccion se comparte con todos los formatos "
+        "del mismo mes y ano."
+    )
     allow_schedule_edits = can_edit_schedule()
     if not allow_schedule_edits:
         st.caption("Este apartado esta en solo lectura para tu perfil.")
@@ -2336,10 +2356,22 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
     ordered_active_days = get_ordered_active_days(payload, active_days, preferred_day)
     if is_current_period(payload):
         slot_text = TIME_SLOTS[current_slot_index] if current_slot_index is not None else "fuera de horario de captura"
-        st.caption(f"Dia sugerido: {preferred_day}. Bloque sugerido por hora del sistema: {slot_text}.")
-    for day in ordered_active_days:
+        st.info(f"Dia sugerido por el sistema: {preferred_day}. Bloque actual: {slot_text}.")
+    days_to_render = ordered_active_days
+    if is_capture_role():
+        selected_capture_day = st.selectbox(
+            "Dia a capturar",
+            options=ordered_active_days,
+            index=0,
+            format_func=lambda value: f"Dia {value}",
+            key=f"capture_day_picker_{period_key}",
+        )
+        days_to_render = [int(selected_capture_day)]
+        st.caption("Para captura se muestra un solo dia a la vez. Si necesitas corregir otro dia, seleccionalo aqui.")
+
+    for day in days_to_render:
         record = payload["daily_records"][str(day)]
-        with st.expander(f"Dia {day}", expanded=day == preferred_day):
+        with st.expander(f"Dia {day}", expanded=is_capture_role() or day == preferred_day):
             record["canceled_slots"] = normalize_canceled_slots(record.get("canceled_slots", []))
             cancellation_cols = st.columns([1, 2, 3])
             full_cancel_key = f"cancel_full_day_{period_key}_{day}"
@@ -4077,6 +4109,7 @@ def render_actions(payload: dict[str, Any]) -> None:
     st.subheader("5. Guardado y exportacion")
     allow_daily_edits = can_edit_daily_records()
     allow_export = can_export_period()
+    allow_reset = is_admin_role()
     maybe_autosave_payload(payload)
     errors = validate_payload(payload)
     if errors:
@@ -4097,46 +4130,56 @@ def render_actions(payload: dict[str, Any]) -> None:
         autosave_label = "respaldo local" if autosave_backend == "Local JSON" else "correcto"
         st.caption(f"Autoguardado {autosave_label}: {autosave_at}")
 
-    save_col, export_col, reset_col = st.columns(3)
-    if save_col.button("Guardar borrador", use_container_width=True, disabled=not allow_daily_edits):
-        try:
-            saved_backend = save_payload(payload)
-            log_activity(
-                "guardar_borrador",
-                "Respaldo local" if saved_backend == "Local JSON" else "Guardado principal",
-                payload,
+    action_columns_count = sum([allow_daily_edits, allow_export, allow_reset]) or 1
+    action_columns = st.columns(action_columns_count)
+    column_index = 0
+
+    if allow_daily_edits:
+        save_col = action_columns[column_index]
+        column_index += 1
+        save_label = "Guardar captura" if is_capture_role() else "Guardar borrador"
+        if save_col.button(save_label, use_container_width=True):
+            try:
+                saved_backend = save_payload(payload)
+                log_activity(
+                    "guardar_borrador",
+                    "Respaldo local" if saved_backend == "Local JSON" else "Guardado principal",
+                    payload,
+                )
+                if saved_backend == "Local JSON":
+                    st.warning("Se guardo un respaldo local del borrador.")
+                else:
+                    st.success("Se guardo la captura.")
+            except Exception as exc:
+                st.error(f"No se pudo guardar la captura: {exc}")
+
+    if allow_export:
+        export_col = action_columns[column_index]
+        column_index += 1
+        if export_col.button("Preparar Excel", use_container_width=True):
+            if errors:
+                st.error("Completa los campos pendientes antes de exportar.")
+                return
+            try:
+                save_payload(payload)
+            except Exception:
+                pass
+            excel_file = populate_template(payload)
+            log_activity("exportar_excel", "Genero el archivo Excel", payload)
+            form_definition = get_form_definition(payload["metadata"]["form_key"])
+            form_code = form_definition["source_file"].split()[0].replace(".xlsx", "")
+            filename = (
+                f"{form_code}_{payload['metadata']['equipment_code']}_{payload['metadata']['year']}_{payload['metadata']['month']:02d}.xlsx"
             )
-            if saved_backend == "Local JSON":
-                st.warning("Se guardo un respaldo local del borrador.")
-            else:
-                st.success("Se guardo el borrador.")
-        except Exception as exc:
-            st.error(f"No se pudo guardar el borrador: {exc}")
+            st.download_button(
+                "Descargar formato llenado",
+                data=excel_file,
+                file_name=filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
-    if export_col.button("Preparar Excel", use_container_width=True, disabled=not allow_export):
-        if errors:
-            st.error("Completa los campos pendientes antes de exportar.")
-            return
-        try:
-            save_payload(payload)
-        except Exception:
-            pass
-        excel_file = populate_template(payload)
-        log_activity("exportar_excel", "Genero el archivo Excel", payload)
-        form_definition = get_form_definition(payload["metadata"]["form_key"])
-        form_code = form_definition["source_file"].split()[0].replace(".xlsx", "")
-        filename = (
-            f"{form_code}_{payload['metadata']['equipment_code']}_{payload['metadata']['year']}_{payload['metadata']['month']:02d}.xlsx"
-        )
-        st.download_button(
-            "Descargar formato llenado",
-            data=excel_file,
-            file_name=filename,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-
-    if reset_col.button("Limpiar periodo", use_container_width=True, disabled=not allow_daily_edits):
+    if allow_reset and action_columns[column_index].button("Limpiar periodo", use_container_width=True):
         log_activity("limpiar_periodo", "Restablecio el periodo actual", payload)
         current_period_key = get_period_key(payload)
         clear_period_widget_state(current_period_key)
@@ -4149,7 +4192,9 @@ def render_actions(payload: dict[str, Any]) -> None:
         st.session_state.period_key = get_period_key(st.session_state.payload)
         st.rerun()
 
-    if not allow_export:
+    if not allow_daily_edits and not allow_export:
+        st.caption("Tu perfil no tiene acciones disponibles para este periodo.")
+    elif not allow_export:
         st.caption("Solo calidad o admin pueden cerrar y exportar el formato.")
 
 
