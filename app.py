@@ -4226,6 +4226,9 @@ def render_main_section_selector() -> str:
     previous_selection = str(st.session_state.get("main_section", available_sections[0]))
     if previous_selection not in available_sections:
         st.session_state["main_section"] = available_sections[0]
+    if len(available_sections) == 1:
+        st.session_state["main_section"] = available_sections[0]
+        return available_sections[0]
 
     if hasattr(st, "segmented_control"):
         return st.segmented_control(
