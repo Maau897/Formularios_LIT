@@ -48,7 +48,6 @@ from supabase_users import (
     eliminar_usuario,
     listar_eventos_auditoria,
     listar_usuarios,
-    promover_usuarios_aprobados_a_admin,
     registrar_evento_auditoria,
     obtener_usuarios_pendientes,
     registrar_usuario,
@@ -331,11 +330,7 @@ def configure_users_backend() -> None:
             pass
     if supabase_users_enabled():
         try:
-            sincronizar_usuarios_conocidos(KNOWN_USER_DISPLAY_NAMES, force_admin=True)
-        except Exception:
-            pass
-        try:
-            promover_usuarios_aprobados_a_admin()
+            sincronizar_usuarios_conocidos(KNOWN_USER_DISPLAY_NAMES, force_admin=False)
         except Exception:
             pass
 
@@ -489,11 +484,11 @@ def can_close_period() -> bool:
 
 
 def can_manage_traceability() -> bool:
-    return current_user_role() == "admin"
+    return current_user_role() in {"calidad", "admin"}
 
 
 def can_edit_master_list() -> bool:
-    return current_user_role() == "admin"
+    return current_user_role() in {"calidad", "admin"}
 
 
 def can_export_period() -> bool:
@@ -2037,7 +2032,7 @@ def render_sidebar(
 
 
 def render_configuration(payload: dict[str, Any]) -> None:
-    if is_capture_role():
+    if not can_edit_sensitive_configuration():
         st.subheader("Captura rapida")
         st.info(
             "Modo captura: registra el dia sugerido, el bloque correspondiente y guarda. "
@@ -4206,18 +4201,32 @@ MAIN_SECTIONS = [
 ]
 
 
+def get_available_main_sections() -> list[str]:
+    role = current_user_role()
+    if role == "admin":
+        return MAIN_SECTIONS
+    if role == "calidad":
+        return ["Captura del periodo", "Reportes", "Lista maestra", "Trazabilidad y validacion"]
+    return ["Captura del periodo"]
+
+
 def render_main_section_selector() -> str:
+    available_sections = get_available_main_sections()
+    previous_selection = str(st.session_state.get("main_section", available_sections[0]))
+    if previous_selection not in available_sections:
+        st.session_state["main_section"] = available_sections[0]
+
     if hasattr(st, "segmented_control"):
         return st.segmented_control(
             "Apartado",
-            options=MAIN_SECTIONS,
-            default=MAIN_SECTIONS[0],
+            options=available_sections,
+            default=available_sections[0],
             key="main_section",
             label_visibility="collapsed",
-        ) or MAIN_SECTIONS[0]
+        ) or available_sections[0]
     return st.radio(
         "Apartado",
-        options=MAIN_SECTIONS,
+        options=available_sections,
         horizontal=True,
         key="main_section",
         label_visibility="collapsed",

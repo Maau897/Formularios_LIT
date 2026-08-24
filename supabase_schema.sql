@@ -22,11 +22,6 @@ where lower(email) in (
     'helios.avel@gmail.com'
 );
 
-update usuarios_app
-set rol = 'admin',
-    es_admin = true
-where aprobado = true;
-
 create table if not exists formularios_periodos (
     id uuid primary key default gen_random_uuid(),
     form_key text not null,
