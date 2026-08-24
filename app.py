@@ -2342,6 +2342,58 @@ def apply_non_working_days_to_records(payload: dict[str, Any]) -> None:
         payload["daily_records"][str(day)]["active"] = day not in non_working_days
 
 
+def sync_cancellation_state_from_widgets(record: dict[str, Any], period_key: str, day: int) -> None:
+    full_cancel_key = f"cancel_full_day_{period_key}_{day}"
+    canceled_key = f"canceled_slots_{period_key}_{day}"
+    record["canceled_slots"] = normalize_canceled_slots(record.get("canceled_slots", []))
+    if st.session_state.get(full_cancel_key, is_day_fully_canceled(record)):
+        record["canceled_slots"] = list(range(len(TIME_SLOTS)))
+    elif canceled_key in st.session_state:
+        record["canceled_slots"] = normalize_canceled_slots(st.session_state[canceled_key])
+
+
+def render_cancellation_controls(
+    record: dict[str, Any],
+    period_key: str,
+    day: int,
+    allow_daily_edits: bool,
+) -> None:
+    st.markdown("**Cancelaciones del dia**")
+    cancellation_cols = st.columns([1, 2, 3])
+    full_cancel_key = f"cancel_full_day_{period_key}_{day}"
+    full_day_canceled = cancellation_cols[0].checkbox(
+        "Cancelar dia completo",
+        value=is_day_fully_canceled(record),
+        key=full_cancel_key,
+        disabled=not allow_daily_edits,
+    )
+    if full_day_canceled:
+        record["canceled_slots"] = list(range(len(TIME_SLOTS)))
+        cancellation_cols[1].caption("Las tres capturas del dia se exportaran como N/A.")
+    else:
+        canceled_key = f"canceled_slots_{period_key}_{day}"
+        canceled_default = [] if is_day_fully_canceled(record) and not st.session_state.get(full_cancel_key, False) else record["canceled_slots"]
+        selected_canceled_slots = cancellation_cols[1].multiselect(
+            "Horarios cancelados",
+            options=list(range(len(TIME_SLOTS))),
+            default=canceled_default,
+            format_func=lambda index: TIME_SLOTS[index],
+            key=canceled_key,
+            disabled=not allow_daily_edits,
+        )
+        record["canceled_slots"] = normalize_canceled_slots(selected_canceled_slots)
+
+    note_key = f"cancellation_note_{period_key}_{day}"
+    if note_key not in st.session_state:
+        st.session_state[note_key] = str(record.get("cancellation_note", ""))
+    record["cancellation_note"] = cancellation_cols[2].text_input(
+        "Motivo de cancelacion",
+        key=note_key,
+        disabled=not allow_daily_edits or not record["canceled_slots"],
+        placeholder="Ej. salida temprana, mantenimiento, falla electrica",
+    )
+
+
 def render_daily_capture(payload: dict[str, Any]) -> None:
     st.subheader("Captura diaria" if is_capture_role() else "3. Captura diaria")
     copy = get_format_specific_copy(payload)
@@ -2379,40 +2431,7 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
     for day in days_to_render:
         record = payload["daily_records"][str(day)]
         with st.expander(f"Dia {day}", expanded=is_capture_role() or day == preferred_day):
-            record["canceled_slots"] = normalize_canceled_slots(record.get("canceled_slots", []))
-            cancellation_cols = st.columns([1, 2, 3])
-            full_cancel_key = f"cancel_full_day_{period_key}_{day}"
-            full_day_canceled = cancellation_cols[0].checkbox(
-                "Cancelar dia completo",
-                value=is_day_fully_canceled(record),
-                key=full_cancel_key,
-                disabled=not allow_daily_edits,
-            )
-            if full_day_canceled:
-                record["canceled_slots"] = list(range(len(TIME_SLOTS)))
-                cancellation_cols[1].caption("Las tres capturas del dia se exportaran como N/A.")
-            else:
-                canceled_key = f"canceled_slots_{period_key}_{day}"
-                canceled_default = [] if is_day_fully_canceled(record) and not st.session_state.get(full_cancel_key, False) else record["canceled_slots"]
-                selected_canceled_slots = cancellation_cols[1].multiselect(
-                    "Horarios cancelados",
-                    options=list(range(len(TIME_SLOTS))),
-                    default=canceled_default,
-                    format_func=lambda index: TIME_SLOTS[index],
-                    key=canceled_key,
-                    disabled=not allow_daily_edits,
-                )
-                record["canceled_slots"] = normalize_canceled_slots(selected_canceled_slots)
-
-            note_key = f"cancellation_note_{period_key}_{day}"
-            if note_key not in st.session_state:
-                st.session_state[note_key] = str(record.get("cancellation_note", ""))
-            record["cancellation_note"] = cancellation_cols[2].text_input(
-                "Motivo de cancelacion",
-                key=note_key,
-                disabled=not allow_daily_edits or not record["canceled_slots"],
-                placeholder="Ej. salida temprana, mantenimiento, falla electrica",
-            )
+            sync_cancellation_state_from_widgets(record, period_key, day)
 
             captured_slot_flags = [False, False, False]
             for metric in metrics:
@@ -2576,6 +2595,7 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
                 key=notes_key,
                 disabled=not allow_daily_edits,
             )
+            render_cancellation_controls(record, period_key, day, allow_daily_edits)
 
 
 def parse_streamlit_date(value: str) -> date:
