@@ -2363,9 +2363,6 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
     preferred_day = get_preferred_capture_day(payload, active_days)
     current_slot_index = get_current_time_slot_index() if is_current_period(payload) else None
     ordered_active_days = get_ordered_active_days(payload, active_days, preferred_day)
-    if is_current_period(payload):
-        slot_text = TIME_SLOTS[current_slot_index] if current_slot_index is not None else "fuera de horario de captura"
-        st.info(f"Dia sugerido por el sistema: {preferred_day}. Bloque actual: {slot_text}.")
     days_to_render = ordered_active_days
     if is_capture_role():
         selected_capture_day = st.selectbox(
