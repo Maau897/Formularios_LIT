@@ -1993,12 +1993,13 @@ def render_sidebar(
     form_keys: list[str],
     equipment_codes: list[str],
 ) -> tuple[str, str]:
-    st.sidebar.title("Formatos")
-    st.sidebar.write(f"Sesion: `{st.session_state.get('usuario_email', '')}`")
-    st.sidebar.write(f"Perfil: `{st.session_state.get('rol_usuario', 'captura')}`")
-    display_name = get_current_user_display_name()
-    if display_name:
-        st.sidebar.write(f"Firma automatica: `{display_name}`")
+    if not is_capture_role():
+        st.sidebar.title("Formatos")
+        st.sidebar.write(f"Sesion: `{st.session_state.get('usuario_email', '')}`")
+        st.sidebar.write(f"Perfil: `{st.session_state.get('rol_usuario', 'captura')}`")
+        display_name = get_current_user_display_name()
+        if display_name:
+            st.sidebar.write(f"Firma automatica: `{display_name}`")
     if st.sidebar.button("Cerrar sesion", use_container_width=True):
         st.session_state["autenticado"] = False
         st.session_state["usuario_email"] = ""
