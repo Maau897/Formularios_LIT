@@ -4283,10 +4283,11 @@ def main() -> None:
     equipment_configs = load_equipment_configs(payload["metadata"]["form_key"])
     equipment_codes = list(equipment_configs.keys())
 
-    st.title("Digitalizacion de formatos")
-    st.caption(
-        f"Captura guiada y exportacion automatica para {payload['metadata']['form_label']} en {payload['metadata']['equipment_code']}."
-    )
+    if not is_capture_role():
+        st.title("Digitalizacion de formatos")
+        st.caption(
+            f"Captura guiada y exportacion automatica para {payload['metadata']['form_label']} en {payload['metadata']['equipment_code']}."
+        )
 
     selected_form_key, selected_equipment = render_sidebar(payload, form_keys, equipment_codes)
     if selected_form_key != payload["metadata"]["form_key"]:
