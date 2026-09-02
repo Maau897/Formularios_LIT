@@ -2024,11 +2024,137 @@ def format_metric_value(payload: dict[str, Any], metric: dict[str, Any], value: 
     return text
 
 
+def get_capture_target_key(form_key: str, equipment_code: str) -> str:
+    return f"{form_key}|{equipment_code}"
+
+
+def get_laboratory_display_name(laboratory: str) -> str:
+    text = str(laboratory or "").strip()
+    if not text:
+        return "Sin laboratorio"
+    match = re.search(r"\b(\d{3,4})\b", text)
+    return match.group(1) if match else text
+
+
+def get_capture_form_short_label(form_key: str, equipment_code: str) -> str:
+    if form_key == "condiciones_ambientales":
+        upper_code = equipment_code.upper()
+        if upper_code.startswith("HUMEDAD"):
+            return "Humedad ambiental"
+        if upper_code.startswith("TEMPERATURA"):
+            return "Temperatura ambiental"
+        return "Condiciones ambientales"
+    if form_key == "congeladores":
+        return "Congeladores"
+    if form_key == "ultracongeladores":
+        return "Ultracongeladores"
+    if form_key == "refrigeradores":
+        return "Refrigeradores"
+    if form_key == "incubadoras":
+        return "Incubadoras"
+    return FORM_DEFINITIONS[form_key]["label"]
+
+
+def build_capture_targets(form_keys: list[str]) -> list[dict[str, str]]:
+    targets: list[dict[str, str]] = []
+    for form_key in form_keys:
+        try:
+            equipment_configs = load_equipment_configs(form_key)
+        except Exception:
+            continue
+        for equipment_code, config in equipment_configs.items():
+            laboratory = str(config.get("laboratory", "")).strip()
+            targets.append(
+                {
+                    "key": get_capture_target_key(form_key, equipment_code),
+                    "form_key": form_key,
+                    "equipment_code": str(equipment_code),
+                    "laboratory": laboratory,
+                    "lab_label": get_laboratory_display_name(laboratory),
+                    "form_label": get_capture_form_short_label(form_key, str(equipment_code)),
+                }
+            )
+    return sorted(
+        targets,
+        key=lambda item: (
+            item["lab_label"],
+            item["form_label"],
+            item["equipment_code"],
+        ),
+    )
+
+
+def render_capture_route_selector(payload: dict[str, Any], form_keys: list[str]) -> tuple[str, str]:
+    targets = build_capture_targets(form_keys)
+    if not targets:
+        return str(payload["metadata"]["form_key"]), str(payload["metadata"]["equipment_code"])
+
+    current_key = get_capture_target_key(
+        str(payload["metadata"]["form_key"]),
+        str(payload["metadata"]["equipment_code"]),
+    )
+    current_target = next((target for target in targets if target["key"] == current_key), targets[0])
+    lab_options = sorted(
+        {target["laboratory"] for target in targets},
+        key=lambda value: get_laboratory_display_name(value),
+    )
+    selected_lab_key = "capture_selected_laboratory"
+    if st.session_state.get(selected_lab_key) not in lab_options:
+        st.session_state[selected_lab_key] = current_target["laboratory"]
+
+    st.markdown("**Selecciona laboratorio**")
+    lab_cols = st.columns(min(4, max(1, len(lab_options))))
+    for index, laboratory in enumerate(lab_options):
+        label = get_laboratory_display_name(laboratory)
+        selected = laboratory == st.session_state[selected_lab_key]
+        button_label = f"{label} seleccionado" if selected else label
+        if lab_cols[index % len(lab_cols)].button(
+            button_label,
+            key=f"capture_lab_{label}_{index}",
+            use_container_width=True,
+            disabled=selected,
+        ):
+            st.session_state[selected_lab_key] = laboratory
+            st.rerun()
+
+    selected_lab = str(st.session_state[selected_lab_key])
+    selected_targets = [target for target in targets if target["laboratory"] == selected_lab]
+    st.markdown(f"**Que vas a capturar en {get_laboratory_display_name(selected_lab)}**")
+    target_cols = st.columns(min(3, max(1, len(selected_targets))))
+    selected_form_key = str(payload["metadata"]["form_key"])
+    selected_equipment = str(payload["metadata"]["equipment_code"])
+    for index, target in enumerate(selected_targets):
+        target_label = f"{target['form_label']} - {target['equipment_code']}"
+        is_current = target["key"] == current_key
+        button_label = f"{target_label} seleccionado" if is_current else target_label
+        if target_cols[index % len(target_cols)].button(
+            button_label,
+            key=f"capture_target_{target['key']}",
+            use_container_width=True,
+            disabled=is_current,
+        ):
+            selected_form_key = target["form_key"]
+            selected_equipment = target["equipment_code"]
+
+    return selected_form_key, selected_equipment
+
+
 def render_sidebar(
     payload: dict[str, Any],
     form_keys: list[str],
     equipment_codes: list[str],
 ) -> tuple[str, str]:
+    if is_capture_role():
+        if st.sidebar.button("Cerrar sesion", use_container_width=True):
+            st.session_state["autenticado"] = False
+            st.session_state["usuario_email"] = ""
+            st.session_state["usuario_nombre"] = ""
+            st.session_state["es_admin"] = False
+            st.session_state["rol_usuario"] = "captura"
+            st.session_state["modo_trabajo"] = ""
+            st.rerun()
+        return str(payload["metadata"]["form_key"]), str(payload["metadata"]["equipment_code"])
+
     if not is_capture_role():
         st.sidebar.title("Formatos")
         st.sidebar.write(f"Sesion: `{st.session_state.get('usuario_email', '')}`")
@@ -4353,26 +4479,22 @@ def main() -> None:
         )
 
     selected_form_key, selected_equipment = render_sidebar(payload, form_keys, equipment_codes)
-    if selected_form_key != payload["metadata"]["form_key"]:
-        target_equipment = FORM_DEFINITIONS[selected_form_key]["default_equipment"]
-        st.session_state.payload = load_saved_payload(
-            form_key=selected_form_key,
-            equipment_code=target_equipment,
-            year=int(payload["metadata"]["year"]),
-            month=int(payload["metadata"]["month"]),
-        )
-        remember_saved_snapshot(st.session_state.payload)
-        st.session_state.period_key = get_period_key(st.session_state.payload)
-        st.rerun()
+    if is_capture_role():
+        selected_form_key, selected_equipment = render_capture_route_selector(payload, form_keys)
 
-    if selected_equipment != payload["metadata"]["equipment_code"]:
+    selected_form_changed = selected_form_key != payload["metadata"]["form_key"]
+    selected_equipment_changed = selected_equipment != payload["metadata"]["equipment_code"]
+    if selected_form_changed or selected_equipment_changed:
+        target_equipment = selected_equipment
+        if selected_form_changed and not is_capture_role():
+            target_equipment = FORM_DEFINITIONS[selected_form_key]["default_equipment"]
         target_period_key = (
-            f"{payload['metadata']['form_key']}_{selected_equipment}_{int(payload['metadata']['year'])}_{int(payload['metadata']['month']):02d}"
+            f"{selected_form_key}_{target_equipment}_{int(payload['metadata']['year'])}_{int(payload['metadata']['month']):02d}"
         )
         clear_period_widget_state(target_period_key)
         st.session_state.payload = load_saved_payload(
-            form_key=str(payload["metadata"]["form_key"]),
-            equipment_code=selected_equipment,
+            form_key=selected_form_key,
+            equipment_code=target_equipment,
             year=int(payload["metadata"]["year"]),
             month=int(payload["metadata"]["month"]),
         )
