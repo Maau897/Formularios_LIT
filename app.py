@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 try:
     from dotenv import load_dotenv
 except ModuleNotFoundError:
@@ -2033,6 +2034,28 @@ def make_widget_key(prefix: str, *parts: object) -> str:
     return re.sub(r"[^a-zA-Z0-9_]+", "_", raw_key).strip("_")[:180]
 
 
+def request_capture_scroll(anchor_id: str) -> None:
+    st.session_state["capture_scroll_target"] = anchor_id
+
+
+def render_capture_scroll_anchor(anchor_id: str) -> None:
+    st.markdown(f'<div id="{anchor_id}"></div>', unsafe_allow_html=True)
+    if st.session_state.get("capture_scroll_target") != anchor_id:
+        return
+    components.html(
+        f"""
+        <script>
+        const anchor = window.parent.document.getElementById("{anchor_id}");
+        if (anchor) {{
+            anchor.scrollIntoView({{ behavior: "smooth", block: "start" }});
+        }}
+        </script>
+        """,
+        height=0,
+    )
+    st.session_state["capture_scroll_target"] = ""
+
+
 def get_laboratory_display_name(laboratory: str) -> str:
     text = str(laboratory or "").strip()
     if not text:
@@ -2089,13 +2112,6 @@ def build_capture_targets(form_keys: list[str]) -> list[dict[str, str]]:
     )
 
 
-def capture_card_container(column: Any) -> Any:
-    try:
-        return column.container(border=True)
-    except TypeError:
-        return column.container()
-
-
 def render_capture_route_selector(payload: dict[str, Any], form_keys: list[str]) -> tuple[str, str]:
     targets = build_capture_targets(form_keys)
     if not targets:
@@ -2126,12 +2142,14 @@ def render_capture_route_selector(payload: dict[str, Any], form_keys: list[str])
             disabled=selected,
         ):
             st.session_state[selected_lab_key] = laboratory
+            request_capture_scroll("capture-targets-anchor")
             st.rerun()
         if selected:
             lab_cols[index % len(lab_cols)].caption("Seleccionado")
 
     selected_lab = str(st.session_state[selected_lab_key])
     selected_targets = [target for target in targets if target["laboratory"] == selected_lab]
+    render_capture_scroll_anchor("capture-targets-anchor")
     st.markdown(f"**Que vas a capturar en {get_laboratory_display_name(selected_lab)}**")
     target_cols = st.columns(min(3, max(1, len(selected_targets))))
     selected_form_key = str(payload["metadata"]["form_key"])
@@ -2147,6 +2165,7 @@ def render_capture_route_selector(payload: dict[str, Any], form_keys: list[str])
         ):
             selected_form_key = target["form_key"]
             selected_equipment = target["equipment_code"]
+            request_capture_scroll("capture-daily-anchor")
         if is_current:
             target_cols[index % len(target_cols)].caption("Seleccionado")
 
@@ -2567,75 +2586,9 @@ def render_cancellation_controls(
     )
 
 
-def is_daily_record_complete(record: dict[str, Any], metrics: list[dict[str, Any]]) -> bool:
-    active_slots = active_slot_indices(record)
-    if not active_slots:
-        return True
-    for metric in metrics:
-        metric_values = list(record.get(metric["key"], ["", "", ""]))
-        if not all(str(metric_values[index] if index < len(metric_values) else "").strip() for index in active_slots):
-            return False
-    performed_values = list(record.get("performed_by_slots", ["", "", ""]))
-    if not all(str(performed_values[index] if index < len(performed_values) else "").strip() for index in active_slots):
-        return False
-    return bool(str(record.get("verified_by", "")).strip() and str(record.get("recorded_on", "")).strip())
-
-
-def get_capture_day_status(record: dict[str, Any], metrics: list[dict[str, Any]], preferred_day: int, day: int) -> str:
-    if is_day_fully_canceled(record):
-        return "Cancelado"
-    if is_daily_record_complete(record, metrics):
-        return "Completo"
-    if day == preferred_day:
-        return "Sugerido"
-    return "Pendiente"
-
-
-def render_capture_day_selector(
-    payload: dict[str, Any],
-    active_days: list[int],
-    preferred_day: int,
-    period_key: str,
-    metrics: list[dict[str, Any]],
-) -> int:
-    selected_day_key = f"capture_selected_day_{period_key}"
-    try:
-        selected_day = int(st.session_state.get(selected_day_key, preferred_day))
-    except (TypeError, ValueError):
-        selected_day = preferred_day
-    if selected_day not in active_days:
-        selected_day = preferred_day
-    st.session_state[selected_day_key] = selected_day
-
-    st.markdown("**Selecciona el dia**")
-    if is_current_period(payload) and preferred_day in active_days:
-        st.caption(f"Dia sugerido: {preferred_day}. Puedes elegir otro si necesitas corregir o completar capturas.")
-    else:
-        st.caption("Elige el dia que vas a registrar o corregir.")
-
-    day_cols = st.columns(7)
-    for index, day in enumerate(active_days):
-        record = payload["daily_records"][str(day)]
-        selected = int(st.session_state[selected_day_key]) == day
-        status = get_capture_day_status(record, metrics, preferred_day, day)
-        with capture_card_container(day_cols[index % len(day_cols)]):
-            st.markdown(
-                f"<div style='font-size:1.75rem;font-weight:800;text-align:center;'>Dia {day}</div>",
-                unsafe_allow_html=True,
-            )
-            st.caption(status if not selected else f"{status} - seleccionado")
-            if not selected and st.button(
-                "Abrir dia",
-                key=make_widget_key("capture_day", period_key, day),
-                use_container_width=True,
-            ):
-                st.session_state[selected_day_key] = day
-                st.rerun()
-
-    return int(st.session_state[selected_day_key])
-
-
 def render_daily_capture(payload: dict[str, Any]) -> None:
+    if is_capture_role():
+        render_capture_scroll_anchor("capture-daily-anchor")
     st.subheader("Captura diaria" if is_capture_role() else "3. Captura diaria")
     copy = get_format_specific_copy(payload)
     st.caption(copy["daily_intro"])
@@ -2659,14 +2612,15 @@ def render_daily_capture(payload: dict[str, Any]) -> None:
     ordered_active_days = get_ordered_active_days(payload, active_days, preferred_day)
     days_to_render = ordered_active_days
     if is_capture_role():
-        selected_capture_day = render_capture_day_selector(
-            payload,
-            active_days,
-            preferred_day,
-            period_key,
-            metrics,
+        selected_capture_day = st.selectbox(
+            "Dia a capturar",
+            options=ordered_active_days,
+            index=0,
+            format_func=lambda value: f"Dia {value}",
+            key=f"capture_day_picker_{period_key}",
         )
         days_to_render = [int(selected_capture_day)]
+        st.caption("Para captura se muestra un solo dia a la vez. Si necesitas corregir otro dia, seleccionalo aqui.")
 
     for day in days_to_render:
         record = payload["daily_records"][str(day)]
