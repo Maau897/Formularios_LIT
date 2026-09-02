@@ -2609,8 +2609,13 @@ def render_capture_day_selector(
     metrics: list[dict[str, Any]],
 ) -> int:
     selected_day_key = f"capture_selected_day_{period_key}"
-    if int(st.session_state.get(selected_day_key, preferred_day)) not in active_days:
-        st.session_state[selected_day_key] = preferred_day
+    try:
+        selected_day = int(st.session_state.get(selected_day_key, preferred_day))
+    except (TypeError, ValueError):
+        selected_day = preferred_day
+    if selected_day not in active_days:
+        selected_day = preferred_day
+    st.session_state[selected_day_key] = selected_day
 
     st.markdown("**Selecciona el dia**")
     if is_current_period(payload) and preferred_day in active_days:
