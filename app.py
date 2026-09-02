@@ -2115,50 +2115,40 @@ def render_capture_route_selector(payload: dict[str, Any], form_keys: list[str])
         st.session_state[selected_lab_key] = current_target["laboratory"]
 
     st.markdown("**Selecciona el bloque**")
-    lab_counts = {
-        laboratory: sum(1 for target in targets if target["laboratory"] == laboratory)
-        for laboratory in lab_options
-    }
     lab_cols = st.columns(min(4, max(1, len(lab_options))))
     for index, laboratory in enumerate(lab_options):
         label = get_laboratory_display_name(laboratory)
         selected = laboratory == st.session_state[selected_lab_key]
-        with capture_card_container(lab_cols[index % len(lab_cols)]):
-            st.markdown(
-                f"<div style='font-size:2.25rem;font-weight:800;line-height:1;text-align:center;'>{label}</div>",
-                unsafe_allow_html=True,
-            )
-            st.caption(f"{lab_counts[laboratory]} opciones de captura")
-            if selected:
-                st.caption("Bloque seleccionado")
-            elif st.button(
-                "Abrir bloque",
-                key=make_widget_key("capture_lab", label, index),
-                use_container_width=True,
-            ):
-                st.session_state[selected_lab_key] = laboratory
-                st.rerun()
+        if lab_cols[index % len(lab_cols)].button(
+            label,
+            key=make_widget_key("capture_lab", label, index),
+            use_container_width=True,
+            disabled=selected,
+        ):
+            st.session_state[selected_lab_key] = laboratory
+            st.rerun()
+        if selected:
+            lab_cols[index % len(lab_cols)].caption("Seleccionado")
 
     selected_lab = str(st.session_state[selected_lab_key])
     selected_targets = [target for target in targets if target["laboratory"] == selected_lab]
-    st.markdown(f"**Que vas a capturar en el bloque {get_laboratory_display_name(selected_lab)}**")
+    st.markdown(f"**Que vas a capturar en {get_laboratory_display_name(selected_lab)}**")
     target_cols = st.columns(min(3, max(1, len(selected_targets))))
     selected_form_key = str(payload["metadata"]["form_key"])
     selected_equipment = str(payload["metadata"]["equipment_code"])
     for index, target in enumerate(selected_targets):
         is_current = target["key"] == current_key
-        with capture_card_container(target_cols[index % len(target_cols)]):
-            st.markdown(f"**{target['form_label']}**")
-            st.caption(target["equipment_code"])
-            if is_current:
-                st.caption("Seleccionado")
-            elif st.button(
-                "Capturar aqui",
-                key=make_widget_key("capture_target", target["key"]),
-                use_container_width=True,
-            ):
-                selected_form_key = target["form_key"]
-                selected_equipment = target["equipment_code"]
+        target_label = f"{target['form_label']} - {target['equipment_code']}"
+        if target_cols[index % len(target_cols)].button(
+            target_label,
+            key=make_widget_key("capture_target", target["key"]),
+            use_container_width=True,
+            disabled=is_current,
+        ):
+            selected_form_key = target["form_key"]
+            selected_equipment = target["equipment_code"]
+        if is_current:
+            target_cols[index % len(target_cols)].caption("Seleccionado")
 
     return selected_form_key, selected_equipment
 
