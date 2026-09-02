@@ -398,6 +398,7 @@ def initialize_auth_state() -> None:
         "usuario_nombre": "",
         "es_admin": False,
         "rol_usuario": "captura",
+        "modo_trabajo": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -406,6 +407,18 @@ def initialize_auth_state() -> None:
 
 def current_user_role() -> str:
     return str(st.session_state.get("rol_usuario", "captura"))
+
+
+def current_work_mode() -> str:
+    role = current_user_role()
+    mode = str(st.session_state.get("modo_trabajo", "")).strip().lower()
+    if role == "captura":
+        return "captura"
+    return mode
+
+
+def can_choose_work_mode() -> bool:
+    return current_user_role() in {"calidad", "admin"}
 
 
 def log_activity(accion: str, detalle: str = "", payload: dict[str, Any] | None = None) -> None:
@@ -460,47 +473,47 @@ def format_local_timestamp(value: str) -> str:
 
 
 def can_edit_sensitive_configuration() -> bool:
-    return current_user_role() in SENSITIVE_EDITOR_ROLES
+    return current_work_mode() != "captura" and current_user_role() in SENSITIVE_EDITOR_ROLES
 
 
 def can_edit_correction_settings() -> bool:
-    return current_user_role() == "admin"
+    return current_work_mode() != "captura" and current_user_role() == "admin"
 
 
 def can_edit_schedule() -> bool:
-    return current_user_role() == "admin"
+    return current_work_mode() != "captura" and current_user_role() == "admin"
 
 
 def can_edit_daily_records() -> bool:
-    return current_user_role() in {"captura", "admin"}
+    return current_work_mode() == "captura" or current_user_role() == "admin"
 
 
 def can_verify_daily_records() -> bool:
-    return current_user_role() in {"captura", "admin"}
+    return current_work_mode() == "captura" or current_user_role() == "admin"
 
 
 def can_close_period() -> bool:
-    return current_user_role() in {"calidad", "admin"}
+    return current_work_mode() != "captura" and current_user_role() in {"calidad", "admin"}
 
 
 def can_manage_traceability() -> bool:
-    return current_user_role() in {"calidad", "admin"}
+    return current_work_mode() != "captura" and current_user_role() in {"calidad", "admin"}
 
 
 def can_edit_master_list() -> bool:
-    return current_user_role() in {"calidad", "admin"}
+    return current_work_mode() != "captura" and current_user_role() in {"calidad", "admin"}
 
 
 def can_export_period() -> bool:
-    return current_user_role() in {"calidad", "admin"}
+    return current_work_mode() != "captura" and current_user_role() in {"calidad", "admin"}
 
 
 def is_capture_role() -> bool:
-    return current_user_role() == "captura"
+    return current_work_mode() == "captura"
 
 
 def is_admin_role() -> bool:
-    return current_user_role() == "admin"
+    return current_work_mode() != "captura" and current_user_role() == "admin"
 
 
 def render_auth_screen() -> None:
@@ -526,6 +539,7 @@ def render_auth_screen() -> None:
                     )
                     st.session_state["es_admin"] = result["es_admin"]
                     st.session_state["rol_usuario"] = result.get("rol", "captura")
+                    st.session_state["modo_trabajo"] = "" if result.get("rol") in {"calidad", "admin"} else "captura"
                     log_activity("inicio_sesion", "Ingreso a la app")
                     st.rerun()
                 else:
@@ -562,6 +576,28 @@ def render_auth_screen() -> None:
                     st.success("Cuenta creada. Queda pendiente de aprobacion.")
             except Exception as exc:
                 st.error(f"No se pudo crear la cuenta: {exc}")
+
+
+def render_work_mode_screen() -> None:
+    st.title("¿Que quieres hacer?")
+    st.caption("Elige un modo para esta sesion. Puedes volver a elegir cerrando sesion.")
+    capture_col, manage_col = st.columns(2)
+    with capture_col:
+        st.subheader("Capturar datos")
+        st.write("Vista simple para registrar lecturas del dia sin controles administrativos.")
+        if st.button("Entrar a captura", use_container_width=True):
+            st.session_state["modo_trabajo"] = "captura"
+            st.session_state["main_section"] = "Captura del periodo"
+            log_activity("seleccionar_modo", "Captura")
+            st.rerun()
+    with manage_col:
+        st.subheader("Administrar")
+        st.write("Vista completa para revisar reportes, lista maestra, trazabilidad y cierre.")
+        if st.button("Entrar a administrar", use_container_width=True):
+            st.session_state["modo_trabajo"] = "administrar"
+            st.session_state["main_section"] = "Captura del periodo"
+            log_activity("seleccionar_modo", "Administrar")
+            st.rerun()
 
 
 def render_user_admin_sidebar() -> None:
@@ -2006,6 +2042,7 @@ def render_sidebar(
         st.session_state["usuario_nombre"] = ""
         st.session_state["es_admin"] = False
         st.session_state["rol_usuario"] = "captura"
+        st.session_state["modo_trabajo"] = ""
         st.rerun()
 
     selected_form_key = st.sidebar.selectbox(
@@ -2028,17 +2065,13 @@ def render_sidebar(
     if not is_capture_role():
         st.sidebar.write(f"Laboratorio: `{payload['metadata']['laboratory']}`")
         st.sidebar.write(f"Equipo / instrumento: `{payload['metadata']['equipment_name']}`")
-    render_user_admin_sidebar()
+    if not is_capture_role():
+        render_user_admin_sidebar()
     return selected_form_key, selected_equipment
 
 
 def render_configuration(payload: dict[str, Any]) -> None:
-    if not can_edit_sensitive_configuration():
-        st.subheader("Captura rapida")
-        st.info(
-            "Modo captura: registra el dia sugerido, el bloque correspondiente y guarda. "
-            "Tu nombre se completa automaticamente en Realizo cuando captures una lectura."
-        )
+    if is_capture_role():
         return
 
     st.subheader("1. Configuracion del mes")
@@ -4234,6 +4267,8 @@ MAIN_SECTIONS = [
 
 
 def get_available_main_sections() -> list[str]:
+    if is_capture_role():
+        return ["Captura del periodo"]
     role = current_user_role()
     if role == "admin":
         return MAIN_SECTIONS
@@ -4283,6 +4318,12 @@ def main() -> None:
 
     if not st.session_state["autenticado"]:
         render_auth_screen()
+        st.stop()
+
+    if current_user_role() == "captura":
+        st.session_state["modo_trabajo"] = "captura"
+    elif can_choose_work_mode() and current_work_mode() not in {"captura", "administrar"}:
+        render_work_mode_screen()
         st.stop()
 
     for form_key in form_keys:
