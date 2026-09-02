@@ -85,6 +85,7 @@ DATA_DIR = BASE_DIR / "data"
 TRACEABILITY_DIR = DATA_DIR / "trazabilidad"
 EQUIPMENT_CONFIG_DIR = DATA_DIR / "configuracion_equipos"
 SIGNATURES_DIR = BASE_DIR / "firmas digitales"
+SAVE_METADATA_KEY = "_save_metadata"
 
 MONTHS = {
     1: "ENERO",
@@ -1632,6 +1633,8 @@ def merge_payload_with_saved_data(
     default_payload["correction_bands"] = data.get("correction_bands", default_payload.get("correction_bands", {}))
     default_payload["correction_factors"].update(data.get("correction_factors", {}))
     default_payload["correction_operations"].update(data.get("correction_operations", {}))
+    if isinstance(data.get(SAVE_METADATA_KEY), dict):
+        default_payload[SAVE_METADATA_KEY] = data[SAVE_METADATA_KEY]
     default_payload["non_working_days"] = data.get("non_working_days", [])
     default_payload["change_log"] = data.get("change_log", [])
     default_payload["monthly_closure"].update(data.get("monthly_closure", {}))
@@ -1687,6 +1690,38 @@ def clear_period_widget_state(period_key: str) -> None:
         del st.session_state[key]
 
 
+def parse_saved_at(payload: dict[str, Any] | None) -> datetime | None:
+    if not isinstance(payload, dict):
+        return None
+    metadata = payload.get(SAVE_METADATA_KEY, {})
+    if not isinstance(metadata, dict):
+        return None
+    raw_value = str(metadata.get("saved_at", "")).strip()
+    if not raw_value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=LOCAL_TIMEZONE)
+    return parsed
+
+
+def choose_latest_payload(remote_payload: dict[str, Any] | None, local_payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if remote_payload is None:
+        return local_payload
+    if local_payload is None:
+        return remote_payload
+
+    remote_saved_at = parse_saved_at(remote_payload)
+    local_saved_at = parse_saved_at(local_payload)
+    if local_saved_at and (remote_saved_at is None or local_saved_at > remote_saved_at):
+        st.session_state["pending_remote_sync_signature"] = get_payload_signature(local_payload)
+        return local_payload
+    return remote_payload
+
+
 def load_saved_payload(
     form_key: str = DEFAULT_FORM_KEY,
     equipment_code: str = DEFAULT_EQUIPMENT_CODE,
@@ -1699,37 +1734,38 @@ def load_saved_payload(
     if month is None:
         month = int(default_payload["metadata"]["month"])
 
+    remote_payload: dict[str, Any] | None = None
     if supabase_storage_enabled():
         try:
             remote_payload = load_remote_period_payload(form_key, equipment_code, year, month)
-            if remote_payload:
-                return apply_shared_correction_settings(
-                    hydrate_payload_corrections(
-                        merge_payload_with_saved_data(remote_payload, equipment_code=equipment_code, form_key=form_key)
-                    )
-                )
         except Exception:
             pass
 
     data_file = get_period_file_from_values(form_key, equipment_code, year, month)
+    local_payload: dict[str, Any] | None = None
+    if data_file.exists():
+        with data_file.open("r", encoding="utf-8") as file:
+            local_payload = json.load(file)
+
+    saved_payload = choose_latest_payload(remote_payload, local_payload)
+    if saved_payload:
+        return apply_shared_correction_settings(
+            hydrate_payload_corrections(
+                merge_payload_with_saved_data(saved_payload, equipment_code=equipment_code, form_key=form_key)
+            )
+        )
+
     if not data_file.exists():
         default_payload["metadata"]["year"] = year
         default_payload["metadata"]["month"] = month
         return apply_shared_correction_settings(hydrate_payload_corrections(default_payload))
-
-    with data_file.open("r", encoding="utf-8") as file:
-        data = json.load(file)
-
-    return apply_shared_correction_settings(
-        hydrate_payload_corrections(
-            merge_payload_with_saved_data(data, equipment_code=equipment_code, form_key=form_key)
-        )
-    )
+    return apply_shared_correction_settings(hydrate_payload_corrections(default_payload))
 
 
 def get_comparable_payload(payload: dict[str, Any]) -> dict[str, Any]:
     comparable_payload = json.loads(json.dumps(payload, ensure_ascii=False))
     comparable_payload.pop("change_log", None)
+    comparable_payload.pop(SAVE_METADATA_KEY, None)
     return comparable_payload
 
 
@@ -1837,6 +1873,19 @@ def compose_observations_export_text(payload: dict[str, Any]) -> str:
     return "\n\n".join(section for section in sections if section).strip()
 
 
+def save_local_period_payload(payload: dict[str, Any]) -> None:
+    data_file = get_period_file(payload)
+    with data_file.open("w", encoding="utf-8") as file:
+        json.dump(payload, file, ensure_ascii=False, indent=2)
+
+
+def stamp_payload_save_metadata(payload: dict[str, Any]) -> None:
+    payload[SAVE_METADATA_KEY] = {
+        "saved_at": get_local_now().isoformat(timespec="seconds"),
+        "saved_by": str(st.session_state.get("usuario_email", "")).strip().lower(),
+    }
+
+
 def save_payload(payload: dict[str, Any]) -> str:
     previous_snapshot = st.session_state.get("last_saved_payload_snapshot")
     if isinstance(previous_snapshot, dict):
@@ -1850,22 +1899,45 @@ def save_payload(payload: dict[str, Any]) -> str:
     except Exception:
         pass
 
+    stamp_payload_save_metadata(payload)
+    local_error = ""
+    remote_error = ""
+    local_saved = False
+    remote_saved = False
+
+    try:
+        save_local_period_payload(payload)
+        local_saved = True
+    except Exception as exc:
+        local_error = str(exc)
+
     if supabase_storage_enabled():
         try:
             save_remote_period_payload(
                 payload,
                 updated_by=str(st.session_state.get("usuario_email", "")).strip(),
             )
-            remember_saved_snapshot(payload)
-            return "Supabase"
-        except Exception:
-            pass
+            remote_saved = True
+            st.session_state["pending_remote_sync_signature"] = ""
+            st.session_state["last_remote_save_error"] = ""
+        except Exception as exc:
+            remote_error = str(exc)
+            st.session_state["pending_remote_sync_signature"] = get_payload_signature(payload)
+            st.session_state["last_remote_save_error"] = remote_error
+    else:
+        st.session_state["pending_remote_sync_signature"] = ""
+        st.session_state["last_remote_save_error"] = ""
 
-    data_file = get_period_file(payload)
-    with data_file.open("w", encoding="utf-8") as file:
-        json.dump(payload, file, ensure_ascii=False, indent=2)
-    remember_saved_snapshot(payload)
-    return "Local JSON"
+    if local_saved or remote_saved:
+        remember_saved_snapshot(payload)
+        if local_saved and remote_saved:
+            return "Local JSON + Supabase"
+        if remote_saved:
+            return "Supabase"
+        return "Local JSON"
+
+    error_parts = [part for part in [f"local: {local_error}" if local_error else "", f"Supabase: {remote_error}" if remote_error else ""] if part]
+    raise RuntimeError("No se pudo guardar la captura" + (f" ({'; '.join(error_parts)})" if error_parts else "."))
 
 
 def get_supabase_status() -> tuple[bool, str]:
@@ -2144,8 +2216,6 @@ def render_capture_route_selector(payload: dict[str, Any], form_keys: list[str])
             st.session_state[selected_lab_key] = laboratory
             request_capture_scroll("capture-targets-anchor")
             st.rerun()
-        if selected:
-            lab_cols[index % len(lab_cols)].caption("Seleccionado")
 
     selected_lab = str(st.session_state[selected_lab_key])
     selected_targets = [target for target in targets if target["laboratory"] == selected_lab]
@@ -2166,8 +2236,6 @@ def render_capture_route_selector(payload: dict[str, Any], form_keys: list[str])
             selected_form_key = target["form_key"]
             selected_equipment = target["equipment_code"]
             request_capture_scroll("capture-daily-anchor")
-        if is_current:
-            target_cols[index % len(target_cols)].caption("Seleccionado")
 
     return selected_form_key, selected_equipment
 
@@ -4305,10 +4373,14 @@ def maybe_autosave_payload(payload: dict[str, Any]) -> None:
 
     last_saved_signature = st.session_state.get("last_saved_payload_signature")
     current_signature = get_payload_signature(payload)
+    pending_remote_sync = (
+        supabase_storage_enabled()
+        and st.session_state.get("pending_remote_sync_signature") == current_signature
+    )
     if last_saved_signature is None:
         remember_saved_snapshot(payload)
         return
-    if current_signature == last_saved_signature:
+    if current_signature == last_saved_signature and not pending_remote_sync:
         return
 
     now = time.time()
@@ -4324,6 +4396,43 @@ def maybe_autosave_payload(payload: dict[str, Any]) -> None:
         st.session_state["last_autosave_error"] = ""
     except Exception as exc:
         st.session_state["last_autosave_error"] = str(exc)
+
+
+def get_save_backend_label(saved_backend: str) -> str:
+    if saved_backend == "Local JSON + Supabase":
+        return "Supabase y respaldo local"
+    if saved_backend == "Local JSON":
+        return "respaldo local"
+    if saved_backend == "Supabase":
+        return "Supabase"
+    return saved_backend or "sin registro"
+
+
+def render_capture_save_controls(payload: dict[str, Any]) -> None:
+    save_col, status_col = st.columns([1, 3])
+    if save_col.button("Guardar ahora", use_container_width=True):
+        try:
+            saved_backend = save_payload(payload)
+            st.session_state["last_autosave_at"] = get_local_now().strftime("%H:%M:%S")
+            st.session_state["last_autosave_backend"] = saved_backend
+            st.session_state["last_autosave_error"] = ""
+            if saved_backend == "Local JSON":
+                st.warning("Se guardo respaldo local. Supabase se sincronizara cuando responda.")
+            else:
+                st.success(f"Guardado en {get_save_backend_label(saved_backend)}.")
+        except Exception as exc:
+            st.error(f"No se pudo guardar la captura: {exc}")
+
+    autosave_error = str(st.session_state.get("last_autosave_error", "")).strip()
+    autosave_at = str(st.session_state.get("last_autosave_at", "")).strip()
+    autosave_backend = str(st.session_state.get("last_autosave_backend", "")).strip()
+    remote_error = str(st.session_state.get("last_remote_save_error", "")).strip()
+    if autosave_error:
+        status_col.caption(f"Autoguardado con problema: {autosave_error}")
+    elif remote_error:
+        status_col.caption("Respaldo local guardado. Pendiente sincronizar con Supabase.")
+    elif autosave_at:
+        status_col.caption(f"Ultimo guardado: {autosave_at} en {get_save_backend_label(autosave_backend)}.")
 
 
 def render_actions(payload: dict[str, Any]) -> None:
@@ -4348,8 +4457,7 @@ def render_actions(payload: dict[str, Any]) -> None:
     if autosave_error:
         st.caption(f"Autoguardado con problema: {autosave_error}")
     elif autosave_at:
-        autosave_label = "respaldo local" if autosave_backend == "Local JSON" else "correcto"
-        st.caption(f"Autoguardado {autosave_label}: {autosave_at}")
+        st.caption(f"Autoguardado: {autosave_at} en {get_save_backend_label(autosave_backend)}")
 
     action_columns_count = sum([allow_daily_edits, allow_export, allow_reset]) or 1
     action_columns = st.columns(action_columns_count)
@@ -4370,7 +4478,7 @@ def render_actions(payload: dict[str, Any]) -> None:
                 if saved_backend == "Local JSON":
                     st.warning("Se guardo un respaldo local del borrador.")
                 else:
-                    st.success("Se guardo la captura.")
+                    st.success(f"Se guardo la captura en {get_save_backend_label(saved_backend)}.")
             except Exception as exc:
                 st.error(f"No se pudo guardar la captura: {exc}")
 
@@ -4564,6 +4672,7 @@ def main() -> None:
             refresh_shared_non_working_days(payload)
             render_daily_capture(payload)
             maybe_autosave_payload(payload)
+            render_capture_save_controls(payload)
         else:
             render_non_working_days(payload)
             render_daily_capture(payload)
