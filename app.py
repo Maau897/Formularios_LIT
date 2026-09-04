@@ -454,6 +454,33 @@ def render_sidebar_collapse_once() -> None:
     st.session_state["collapse_sidebar_once"] = False
 
 
+def render_capture_shell() -> None:
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"],
+        [data-testid="stSidebarNav"],
+        [data-testid="stSidebarCollapsedControl"] {
+            display: none !important;
+        }
+        [data-testid="stAppViewContainer"] {
+            margin-left: 0 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    top_cols = st.columns([5, 1])
+    if top_cols[1].button("Cerrar sesion", use_container_width=True, key="capture_logout"):
+        st.session_state["autenticado"] = False
+        st.session_state["usuario_email"] = ""
+        st.session_state["usuario_nombre"] = ""
+        st.session_state["es_admin"] = False
+        st.session_state["rol_usuario"] = "captura"
+        st.session_state["modo_trabajo"] = ""
+        st.rerun()
+
+
 def log_activity(accion: str, detalle: str = "", payload: dict[str, Any] | None = None) -> None:
     if not supabase_users_enabled():
         return
@@ -2366,14 +2393,6 @@ def render_sidebar(
     equipment_codes: list[str],
 ) -> tuple[str, str]:
     if is_capture_role():
-        if st.sidebar.button("Cerrar sesion", use_container_width=True):
-            st.session_state["autenticado"] = False
-            st.session_state["usuario_email"] = ""
-            st.session_state["usuario_nombre"] = ""
-            st.session_state["es_admin"] = False
-            st.session_state["rol_usuario"] = "captura"
-            st.session_state["modo_trabajo"] = ""
-            st.rerun()
         return str(payload["metadata"]["form_key"]), str(payload["metadata"]["equipment_code"])
 
     if not is_capture_role():
@@ -4715,6 +4734,7 @@ def main() -> None:
         render_work_mode_screen()
         st.stop()
     if is_capture_role():
+        render_capture_shell()
         render_sidebar_collapse_once()
 
     for form_key in form_keys:
