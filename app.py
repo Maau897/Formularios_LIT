@@ -85,6 +85,7 @@ DATA_DIR = BASE_DIR / "data"
 TRACEABILITY_DIR = DATA_DIR / "trazabilidad"
 EQUIPMENT_CONFIG_DIR = DATA_DIR / "configuracion_equipos"
 SIGNATURES_DIR = BASE_DIR / "firmas digitales"
+FORMAT_INVENTORY_PATH = BASE_DIR / "format_inventory.json"
 SAVE_METADATA_KEY = "_save_metadata"
 
 MONTHS = {
@@ -401,6 +402,7 @@ def initialize_auth_state() -> None:
         "es_admin": False,
         "rol_usuario": "captura",
         "modo_trabajo": "",
+        "collapse_sidebar_once": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -421,6 +423,35 @@ def current_work_mode() -> str:
 
 def can_choose_work_mode() -> bool:
     return current_user_role() in {"calidad", "admin"}
+
+
+def request_sidebar_collapse_once() -> None:
+    st.session_state["collapse_sidebar_once"] = True
+
+
+def render_sidebar_collapse_once() -> None:
+    if not st.session_state.get("collapse_sidebar_once"):
+        return
+    components.html(
+        """
+        <script>
+        setTimeout(() => {
+            const doc = window.parent.document;
+            const selectors = [
+                '[data-testid="stSidebarCollapseButton"]',
+                'button[aria-label="Close sidebar"]',
+                'button[aria-label="Cerrar barra lateral"]'
+            ];
+            const button = selectors.map((selector) => doc.querySelector(selector)).find(Boolean);
+            if (button) {
+                button.click();
+            }
+        }, 250);
+        </script>
+        """,
+        height=0,
+    )
+    st.session_state["collapse_sidebar_once"] = False
 
 
 def log_activity(accion: str, detalle: str = "", payload: dict[str, Any] | None = None) -> None:
@@ -542,6 +573,8 @@ def render_auth_screen() -> None:
                     st.session_state["es_admin"] = result["es_admin"]
                     st.session_state["rol_usuario"] = result.get("rol", "captura")
                     st.session_state["modo_trabajo"] = "" if result.get("rol") in {"calidad", "admin"} else "captura"
+                    if st.session_state["modo_trabajo"] == "captura":
+                        request_sidebar_collapse_once()
                     log_activity("inicio_sesion", "Ingreso a la app")
                     st.rerun()
                 else:
@@ -590,6 +623,7 @@ def render_work_mode_screen() -> None:
         if st.button("Entrar a captura", use_container_width=True):
             st.session_state["modo_trabajo"] = "captura"
             st.session_state["main_section"] = "Captura del periodo"
+            request_sidebar_collapse_once()
             log_activity("seleccionar_modo", "Captura")
             st.rerun()
     with manage_col:
@@ -2155,7 +2189,77 @@ def get_capture_form_short_label(form_key: str, equipment_code: str) -> str:
     return FORM_DEFINITIONS[form_key]["label"]
 
 
-def build_capture_targets(form_keys: list[str]) -> list[dict[str, str]]:
+def get_format_inventory_cache_key() -> str:
+    try:
+        return str(FORMAT_INVENTORY_PATH.stat().st_mtime_ns)
+    except FileNotFoundError:
+        return ""
+
+
+@st.cache_data(show_spinner=False)
+def load_format_inventory_cached(path: str, cache_key: str) -> dict[str, Any]:
+    _ = cache_key
+    inventory_path = Path(path)
+    if not inventory_path.exists():
+        return {}
+    with inventory_path.open("r", encoding="utf-8") as file:
+        data = json.load(file)
+    return data if isinstance(data, dict) else {}
+
+
+def load_format_inventory() -> dict[str, Any]:
+    return load_format_inventory_cached(
+        str(FORMAT_INVENTORY_PATH),
+        get_format_inventory_cache_key(),
+    )
+
+
+def get_inventory_format_key(form_key: str) -> str:
+    match = re.search(r"F-LIT-\d+-\d+", FORM_DEFINITIONS[form_key]["label"])
+    return match.group(0) if match else form_key
+
+
+def sort_capture_targets(targets: list[dict[str, str]]) -> list[dict[str, str]]:
+    return sorted(
+        targets,
+        key=lambda item: (
+            item["lab_label"],
+            item["form_label"],
+            item["equipment_code"],
+        ),
+    )
+
+
+def build_capture_targets_from_inventory(form_keys: tuple[str, ...]) -> list[dict[str, str]]:
+    inventory = load_format_inventory()
+    if not inventory:
+        return []
+
+    targets: list[dict[str, str]] = []
+    for form_key in form_keys:
+        inventory_key = get_inventory_format_key(form_key)
+        form_inventory = inventory.get(inventory_key, {})
+        sheets = form_inventory.get("sheets", {}) if isinstance(form_inventory, dict) else {}
+        if not isinstance(sheets, dict) or not sheets:
+            return []
+        for equipment_code, config in sheets.items():
+            if not isinstance(config, dict):
+                continue
+            laboratory = str(config.get("laboratory", "")).strip()
+            targets.append(
+                {
+                    "key": get_capture_target_key(form_key, str(equipment_code)),
+                    "form_key": form_key,
+                    "equipment_code": str(equipment_code),
+                    "laboratory": laboratory,
+                    "lab_label": get_laboratory_display_name(laboratory),
+                    "form_label": get_capture_form_short_label(form_key, str(equipment_code)),
+                }
+            )
+    return sort_capture_targets(targets)
+
+
+def build_capture_targets_from_templates(form_keys: tuple[str, ...]) -> list[dict[str, str]]:
     targets: list[dict[str, str]] = []
     for form_key in form_keys:
         try:
@@ -2174,13 +2278,29 @@ def build_capture_targets(form_keys: list[str]) -> list[dict[str, str]]:
                     "form_label": get_capture_form_short_label(form_key, str(equipment_code)),
                 }
             )
-    return sorted(
-        targets,
-        key=lambda item: (
-            item["lab_label"],
-            item["form_label"],
-            item["equipment_code"],
-        ),
+    return sort_capture_targets(targets)
+
+
+@st.cache_data(show_spinner=False)
+def build_capture_targets_cached(
+    form_keys: tuple[str, ...],
+    inventory_cache_key: str,
+    templates_cache_key: tuple[bool, str, str],
+    cache_version: str,
+) -> list[dict[str, str]]:
+    _ = inventory_cache_key, templates_cache_key, cache_version
+    inventory_targets = build_capture_targets_from_inventory(form_keys)
+    if inventory_targets:
+        return inventory_targets
+    return build_capture_targets_from_templates(form_keys)
+
+
+def build_capture_targets(form_keys: list[str]) -> list[dict[str, str]]:
+    return build_capture_targets_cached(
+        tuple(form_keys),
+        get_format_inventory_cache_key(),
+        get_templates_storage_cache_key(),
+        EQUIPMENT_CONFIG_CACHE_VERSION,
     )
 
 
@@ -4594,6 +4714,8 @@ def main() -> None:
     elif can_choose_work_mode() and current_work_mode() not in {"captura", "administrar"}:
         render_work_mode_screen()
         st.stop()
+    if is_capture_role():
+        render_sidebar_collapse_once()
 
     for form_key in form_keys:
         definition = get_form_definition(form_key)
